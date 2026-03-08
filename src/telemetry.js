@@ -15,9 +15,10 @@ class TelemetryCollector {
     this.telemetryBuffer = [];
     this.maxBufferSize = 100;
 
-    // WebSocket connection for real-time streaming
+    // WebSocket connection for real-time streaming (disabled by default)
     this.ws = null;
     this.wsUrl = options.wsUrl || process.env.EKYBOT_WS_URL || 'wss://api.ekybot.com/ws';
+    this.enableWebSocket = options.enableWebSocket || false; // Opt-in only
   }
 
   // Start telemetry collection
@@ -38,10 +39,14 @@ class TelemetryCollector {
         this.collectAndSend();
       }, this.interval);
 
-      // Initialize WebSocket for real-time updates
-      this.initializeWebSocket();
-
-      console.log(chalk.green(`✓ Telemetry collection started (interval: ${this.interval}ms)`));
+      // Initialize WebSocket for real-time updates (only if enabled)
+      if (this.enableWebSocket) {
+        this.initializeWebSocket();
+        console.log(chalk.green(`✓ Telemetry collection started (HTTP + WebSocket, interval: ${this.interval}ms)`));
+      } else {
+        console.log(chalk.green(`✓ Telemetry collection started (HTTP-only, interval: ${this.interval}ms)`));
+        console.log(chalk.blue('💡 Use --websocket flag to enable real-time streaming'));
+      }
     } catch (error) {
       console.error(chalk.red(`Failed to start telemetry: ${error.message}`));
       throw error;
@@ -113,15 +118,16 @@ class TelemetryCollector {
         // Send via HTTP API
         await this.apiClient.sendTelemetry(this.workspaceId, telemetryData);
         
-        // Send via WebSocket for real-time updates
-        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        // Send via WebSocket for real-time updates (only if WebSocket enabled)
+        if (this.enableWebSocket && this.ws && this.ws.readyState === WebSocket.OPEN) {
           this.ws.send(JSON.stringify({
             type: 'telemetry',
             data: telemetryData
           }));
         }
 
-        console.log(chalk.blue(`📊 Telemetry sent (${Object.keys(telemetryData.agents || {}).length} agents)`));
+        const mode = this.enableWebSocket ? '(HTTP+WS)' : '(HTTP)';
+        console.log(chalk.blue(`📊 Telemetry sent ${mode} (${Object.keys(telemetryData.agents || {}).length} agents)`));
       }
     } catch (error) {
       console.error(chalk.red(`Telemetry collection failed: ${error.message}`));

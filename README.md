@@ -45,7 +45,10 @@ cp .env.example .env
 # 4. Register your OpenClaw workspace
 npm run register
 
-# 5. Start telemetry streaming
+# 5. Enable telemetry (optional but recommended)
+npm run enable-telemetry
+
+# 6. Start the connector service
 npm run start
 ```
 
@@ -59,6 +62,22 @@ WORKSPACE_NAME=my-workspace
 ```
 
 Get your API key from [Ekybot Dashboard](https://ekybot.com/settings/api)
+
+### Telemetry Configuration
+
+**Telemetry is disabled by default.** To enable automatic monitoring:
+
+```bash
+# Configure telemetry settings
+npm run enable-telemetry
+```
+
+This will prompt you to configure:
+- ✅ **Enable/disable** automatic data streaming
+- ⏱️ **Interval** - how often to send data (30-600 seconds)
+- 🌐 **WebSocket** - enable real-time updates (optional)
+
+**You have full control** over what data is shared and when.
 
 ---
 

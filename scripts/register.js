@@ -100,7 +100,7 @@ async function registerWorkspace() {
 
     // Update OpenClaw configuration
     console.log(chalk.blue('⚙️  Updating OpenClaw configuration...'));
-    const success = configManager.addEkybotIntegration(workspace.id, apiKey);
+    const success = configManager.addEkybotIntegration(workspace.id);
     
     if (success) {
       console.log(chalk.green('✓ OpenClaw configuration updated\n'));

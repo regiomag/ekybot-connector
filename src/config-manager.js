@@ -78,7 +78,7 @@ class OpenClawConfigManager {
   }
 
   // Add Ekybot integration to OpenClaw config
-  addEkybotIntegration(workspaceId, apiKey) {
+  addEkybotIntegration(workspaceId) {
     try {
       const config = this.readConfig();
       
@@ -87,12 +87,11 @@ class OpenClawConfigManager {
         config.integrations = {};
       }
 
-      // Add Ekybot configuration
+      // Add Ekybot configuration (NO API KEY stored here!)
       config.integrations.ekybot = {
         enabled: true,
         workspace_id: workspaceId,
-        api_key: apiKey,
-        telemetry_enabled: true,
+        telemetry_enabled: false,  // Disabled by default - requires opt-in
         telemetry_interval: 60000,
         endpoints: {
           api: process.env.EKYBOT_API_URL || 'https://api.ekybot.com',
@@ -146,11 +145,18 @@ class OpenClawConfigManager {
     }
   }
 
-  // Get current Ekybot configuration
+  // Get current Ekybot configuration (with API key from environment)
   getEkybotConfig() {
     try {
       const config = this.readConfig();
-      return config.integrations?.ekybot || null;
+      const ekybotConfig = config.integrations?.ekybot || null;
+      
+      if (ekybotConfig) {
+        // Add API key from environment (not stored in config)
+        ekybotConfig.api_key = process.env.EKYBOT_API_KEY || null;
+      }
+      
+      return ekybotConfig;
     } catch (error) {
       return null;
     }

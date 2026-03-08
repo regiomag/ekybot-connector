@@ -43,6 +43,7 @@
     "restart": "npm run stop && npm run start",
     "register": "node scripts/register.js",
     "setup": "node scripts/setup.js",
+    "enable-telemetry": "node scripts/enable-telemetry.js",
     "health": "node scripts/health.js",
     "test-connection": "node scripts/test-connection.js",
     "logs": "node scripts/logs.js",
