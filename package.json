@@ -1,0 +1,62 @@
+{
+  "name": "ekybot-connector",
+  "version": "1.0.0",
+  "description": "Bridge OpenClaw agents to Ekybot remote management platform",
+  "main": "src/index.js",
+  "keywords": [
+    "openclaw",
+    "ai-agents",
+    "remote-management",
+    "ekybot",
+    "telemetry",
+    "monitoring"
+  ],
+  "author": "Ekybot Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/regiomag/ekybot-connector.git"
+  },
+  "homepage": "https://github.com/regiomag/ekybot-connector#readme",
+  "bugs": {
+    "url": "https://github.com/regiomag/ekybot-connector/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  },
+  "dependencies": {
+    "node-fetch": "^3.3.2",
+    "ws": "^8.14.2",
+    "dotenv": "^16.3.1",
+    "chalk": "^4.1.2",
+    "inquirer": "^8.2.6"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "eslint": "^8.55.0",
+    "prettier": "^3.1.0"
+  },
+  "scripts": {
+    "start": "node scripts/start.js",
+    "stop": "node scripts/stop.js",
+    "restart": "npm run stop && npm run start",
+    "register": "node scripts/register.js",
+    "setup": "node scripts/setup.js",
+    "health": "node scripts/health.js",
+    "test-connection": "node scripts/test-connection.js",
+    "logs": "node scripts/logs.js",
+    "install-service": "node scripts/install-service.js",
+    "uninstall": "node scripts/uninstall.js",
+    "test": "jest",
+    "lint": "eslint src/ scripts/",
+    "format": "prettier --write src/ scripts/"
+  },
+  "files": [
+    "src/",
+    "scripts/",
+    "README.md",
+    "LICENSE",
+    ".env.example"
+  ]
+}
