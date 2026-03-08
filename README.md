@@ -110,10 +110,15 @@ Ekybot Platform (remote dashboard)
 
 **Never sent:**
 
-- ❌ Actual conversation content
-- ❌ Prompts or responses
-- ❌ Local files or documents
-- ❌ Credentials or API keys
+- ❌ Local files or documents (unless explicitly shared)
+- ❌ Credentials or API keys (stored locally only)
+- ❌ System configuration files
+- ❌ SSH keys or authentication tokens
+
+**⚠️ Privacy Note:**
+- **Conversation content IS transmitted** to enable web/mobile interface display
+- **Messages visible in Ekybot UI** come from your OpenClaw agents  
+- **User controls data sharing** through telemetry opt-in/out settings
 
 ### Why Use Ekybot?
 
