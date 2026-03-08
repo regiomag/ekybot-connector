@@ -129,7 +129,7 @@ Ekybot Platform (remote dashboard)
 **VS Local-Only Setup:**
 
 - No SSH needed for remote monitoring
-- Mobile access (73% of issues happen outside office hours)
+- Mobile access
 - Team collaboration without VPN setup
 - Automatic cost tracking across agents
 - Centralized logging and debugging
