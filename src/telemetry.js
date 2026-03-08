@@ -42,9 +42,15 @@ class TelemetryCollector {
       // Initialize WebSocket for real-time updates (only if enabled)
       if (this.enableWebSocket) {
         this.initializeWebSocket();
-        console.log(chalk.green(`✓ Telemetry collection started (HTTP + WebSocket, interval: ${this.interval}ms)`));
+        console.log(
+          chalk.green(
+            `✓ Telemetry collection started (HTTP + WebSocket, interval: ${this.interval}ms)`
+          )
+        );
       } else {
-        console.log(chalk.green(`✓ Telemetry collection started (HTTP-only, interval: ${this.interval}ms)`));
+        console.log(
+          chalk.green(`✓ Telemetry collection started (HTTP-only, interval: ${this.interval}ms)`)
+        );
         console.log(chalk.blue('💡 Use --websocket flag to enable real-time streaming'));
       }
     } catch (error) {
@@ -80,9 +86,9 @@ class TelemetryCollector {
     try {
       this.ws = new WebSocket(this.wsUrl, {
         headers: {
-          'Authorization': `Bearer ${this.apiClient.apiKey}`,
-          'X-Workspace-ID': this.workspaceId
-        }
+          Authorization: `Bearer ${this.apiClient.apiKey}`,
+          'X-Workspace-ID': this.workspaceId,
+        },
       });
 
       this.ws.on('open', () => {
@@ -95,7 +101,7 @@ class TelemetryCollector {
 
       this.ws.on('close', () => {
         console.log(chalk.yellow('WebSocket connection closed'));
-        
+
         // Reconnect if still running
         if (this.isRunning) {
           setTimeout(() => {
@@ -113,25 +119,31 @@ class TelemetryCollector {
   async collectAndSend() {
     try {
       const telemetryData = await this.collectTelemetryData();
-      
+
       if (telemetryData && Object.keys(telemetryData).length > 0) {
         // Send via HTTP API
         await this.apiClient.sendTelemetry(this.workspaceId, telemetryData);
-        
+
         // Send via WebSocket for real-time updates (only if WebSocket enabled)
         if (this.enableWebSocket && this.ws && this.ws.readyState === WebSocket.OPEN) {
-          this.ws.send(JSON.stringify({
-            type: 'telemetry',
-            data: telemetryData
-          }));
+          this.ws.send(
+            JSON.stringify({
+              type: 'telemetry',
+              data: telemetryData,
+            })
+          );
         }
 
         const mode = this.enableWebSocket ? '(HTTP+WS)' : '(HTTP)';
-        console.log(chalk.blue(`📊 Telemetry sent ${mode} (${Object.keys(telemetryData.agents || {}).length} agents)`));
+        console.log(
+          chalk.blue(
+            `📊 Telemetry sent ${mode} (${Object.keys(telemetryData.agents || {}).length} agents)`
+          )
+        );
       }
     } catch (error) {
       console.error(chalk.red(`Telemetry collection failed: ${error.message}`));
-      
+
       // Buffer data for retry if API is down
       const telemetryData = await this.collectTelemetryData().catch(() => null);
       if (telemetryData) {
@@ -142,8 +154,8 @@ class TelemetryCollector {
 
   // Collect actual telemetry data from OpenClaw
   async collectTelemetryData() {
-    const agentsPath = process.env.OPENCLAW_AGENTS_PATH || 
-                      path.join(os.homedir(), '.openclaw', 'agents');
+    const agentsPath =
+      process.env.OPENCLAW_AGENTS_PATH || path.join(os.homedir(), '.openclaw', 'agents');
 
     const telemetryData = {
       timestamp: new Date().toISOString(),
@@ -151,14 +163,14 @@ class TelemetryCollector {
       agents: {},
       workspace: {
         status: 'active',
-        connector_version: '1.0.0'
-      }
+        connector_version: '1.0.0',
+      },
     };
 
     // Collect agent data if agents directory exists
     if (fs.existsSync(agentsPath)) {
       const agents = fs.readdirSync(agentsPath);
-      
+
       for (const agentDir of agents) {
         const agentPath = path.join(agentsPath, agentDir);
         if (fs.statSync(agentPath).isDirectory()) {
@@ -181,12 +193,12 @@ class TelemetryCollector {
         used: process.memoryUsage().heapUsed,
         total: process.memoryUsage().heapTotal,
         system_free: os.freemem(),
-        system_total: os.totalmem()
+        system_total: os.totalmem(),
       },
       cpu: {
         count: os.cpus().length,
-        load: os.loadavg()
-      }
+        load: os.loadavg(),
+      },
     };
   }
 
@@ -199,15 +211,15 @@ class TelemetryCollector {
       total_messages: 0,
       cost_tracking: {
         total_tokens: 0,
-        estimated_cost: 0
-      }
+        estimated_cost: 0,
+      },
     };
 
     try {
       // Check for session files
       const sessionsPath = path.join(agentPath, 'sessions');
       if (fs.existsSync(sessionsPath)) {
-        const sessionFiles = fs.readdirSync(sessionsPath).filter(f => f.endsWith('.jsonl'));
+        const sessionFiles = fs.readdirSync(sessionsPath).filter((f) => f.endsWith('.jsonl'));
         agentMetrics.session_count = sessionFiles.length;
 
         // Parse session data for metrics
@@ -215,7 +227,10 @@ class TelemetryCollector {
           const sessionPath = path.join(sessionsPath, sessionFile);
           try {
             const sessionData = fs.readFileSync(sessionPath, 'utf8');
-            const lines = sessionData.trim().split('\n').filter(line => line.trim());
+            const lines = sessionData
+              .trim()
+              .split('\n')
+              .filter((line) => line.trim());
             agentMetrics.total_messages += lines.length;
 
             // Get last activity from most recent message
@@ -223,7 +238,10 @@ class TelemetryCollector {
               const lastMessage = JSON.parse(lines[lines.length - 1]);
               if (lastMessage.timestamp) {
                 const messageTime = new Date(lastMessage.timestamp);
-                if (!agentMetrics.last_activity || messageTime > new Date(agentMetrics.last_activity)) {
+                if (
+                  !agentMetrics.last_activity ||
+                  messageTime > new Date(agentMetrics.last_activity)
+                ) {
                   agentMetrics.last_activity = lastMessage.timestamp;
                 }
               }
@@ -238,16 +256,17 @@ class TelemetryCollector {
       if (agentMetrics.last_activity) {
         const lastActivityTime = new Date(agentMetrics.last_activity);
         const timeSinceLastActivity = Date.now() - lastActivityTime.getTime();
-        
-        if (timeSinceLastActivity < 5 * 60 * 1000) { // 5 minutes
+
+        if (timeSinceLastActivity < 5 * 60 * 1000) {
+          // 5 minutes
           agentMetrics.status = 'active';
-        } else if (timeSinceLastActivity < 60 * 60 * 1000) { // 1 hour
+        } else if (timeSinceLastActivity < 60 * 60 * 1000) {
+          // 1 hour
           agentMetrics.status = 'idle';
         } else {
           agentMetrics.status = 'inactive';
         }
       }
-
     } catch (error) {
       console.warn(chalk.yellow(`Warning: Could not collect metrics for agent at ${agentPath}`));
     }
@@ -259,7 +278,7 @@ class TelemetryCollector {
   bufferTelemetry(data) {
     this.telemetryBuffer.push({
       ...data,
-      buffered_at: new Date().toISOString()
+      buffered_at: new Date().toISOString(),
     });
 
     // Keep buffer size manageable
@@ -292,7 +311,7 @@ class TelemetryCollector {
       interval: this.interval,
       workspace_id: this.workspaceId,
       websocket_connected: this.ws && this.ws.readyState === WebSocket.OPEN,
-      buffered_entries: this.telemetryBuffer.length
+      buffered_entries: this.telemetryBuffer.length,
     };
   }
 }

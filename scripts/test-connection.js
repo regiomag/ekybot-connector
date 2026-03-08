@@ -10,7 +10,7 @@ async function testConnection() {
 
   // Load configuration
   const configManager = new OpenClawConfigManager();
-  
+
   if (!configManager.isEkybotConfigured()) {
     console.error(chalk.red('❌ Ekybot integration not configured'));
     console.error(chalk.yellow('Run "npm run register" first to set up the connection'));
@@ -18,7 +18,7 @@ async function testConnection() {
   }
 
   const config = configManager.getEkybotConfig();
-  
+
   if (!config.workspace_id || !config.api_key) {
     console.error(chalk.red('❌ Invalid Ekybot configuration'));
     console.error(chalk.yellow('Run "npm run register" to reconfigure'));
@@ -37,7 +37,7 @@ async function testConnection() {
     const startTime = Date.now();
     const healthResponse = await apiClient.healthCheck();
     const responseTime = Date.now() - startTime;
-    
+
     console.log(chalk.green(`   ✓ API is responding (${responseTime}ms)`));
     console.log(chalk.gray(`   Response: ${JSON.stringify(healthResponse, null, 2)}\n`));
 
@@ -65,7 +65,7 @@ async function testConnection() {
     const testTelemetry = {
       test: true,
       timestamp: new Date().toISOString(),
-      connector_version: '1.0.0'
+      connector_version: '1.0.0',
     };
     await apiClient.sendTelemetry(config.workspace_id, testTelemetry);
     console.log(chalk.green('   ✓ Telemetry endpoint working\n'));
@@ -74,10 +74,9 @@ async function testConnection() {
     console.log(chalk.green.bold('🎉 Connection test completed successfully!'));
     console.log(chalk.gray('All API endpoints are accessible and working correctly.'));
     console.log(chalk.gray('Your connector is ready to stream telemetry data.'));
-
   } catch (error) {
     console.error(chalk.red(`\n❌ Connection test failed: ${error.message}`));
-    
+
     // Provide specific troubleshooting advice
     if (error.message.includes('401') || error.message.includes('unauthorized')) {
       console.error(chalk.yellow('\n🔑 Authentication issue:'));
@@ -92,7 +91,7 @@ async function testConnection() {
       console.error(chalk.yellow('\n🌐 Network issue:'));
       console.error(chalk.yellow('• Check your internet connection'));
       console.error(chalk.yellow('• Verify firewall settings'));
-      console.error(chalk.yellow('• Check if you\'re behind a corporate proxy'));
+      console.error(chalk.yellow("• Check if you're behind a corporate proxy"));
     } else {
       console.error(chalk.yellow('\n🔧 General troubleshooting:'));
       console.error(chalk.yellow('• Run "npm run health" for a comprehensive check'));
@@ -106,7 +105,7 @@ async function testConnection() {
 
 // Run if called directly
 if (require.main === module) {
-  testConnection().catch(error => {
+  testConnection().catch((error) => {
     console.error(chalk.red(`Fatal error: ${error.message}`));
     process.exit(1);
   });

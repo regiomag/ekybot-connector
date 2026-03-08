@@ -34,13 +34,15 @@ async function registerWorkspace() {
     const existing = configManager.getEkybotConfig();
     console.log(chalk.yellow('⚠️  Ekybot integration already configured'));
     console.log(chalk.gray(`Workspace ID: ${existing.workspace_id}`));
-    
-    const { reconfigure } = await inquirer.prompt([{
-      type: 'confirm',
-      name: 'reconfigure',
-      message: 'Do you want to reconfigure?',
-      default: false
-    }]);
+
+    const { reconfigure } = await inquirer.prompt([
+      {
+        type: 'confirm',
+        name: 'reconfigure',
+        message: 'Do you want to reconfigure?',
+        default: false,
+      },
+    ]);
 
     if (!reconfigure) {
       console.log(chalk.blue('Registration cancelled.'));
@@ -66,7 +68,7 @@ async function registerWorkspace() {
             return 'Please enter a valid API key';
           }
           return true;
-        }
+        },
       },
       {
         type: 'input',
@@ -78,8 +80,8 @@ async function registerWorkspace() {
             return 'Workspace name must be at least 3 characters';
           }
           return true;
-        }
-      }
+        },
+      },
     ]);
 
     apiKey = answers.apiKey;
@@ -101,7 +103,7 @@ async function registerWorkspace() {
     // Update OpenClaw configuration
     console.log(chalk.blue('⚙️  Updating OpenClaw configuration...'));
     const success = configManager.addEkybotIntegration(workspace.id);
-    
+
     if (success) {
       console.log(chalk.green('✓ OpenClaw configuration updated\n'));
     } else {
@@ -127,7 +129,6 @@ async function registerWorkspace() {
       require('fs').writeFileSync('.env', envContent);
       console.log(chalk.blue('\n💾 Configuration saved to .env file'));
     }
-
   } catch (error) {
     console.error(chalk.red(`\n❌ Registration failed: ${error.message}`));
     console.error(chalk.yellow('\nTroubleshooting:'));
@@ -140,7 +141,7 @@ async function registerWorkspace() {
 
 // Run if called directly
 if (require.main === module) {
-  registerWorkspace().catch(error => {
+  registerWorkspace().catch((error) => {
     console.error(chalk.red(`Fatal error: ${error.message}`));
     process.exit(1);
   });

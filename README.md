@@ -11,8 +11,9 @@
 🚀 **Use Ekybot hosted service** → [Sign up at ekybot.com](https://ekybot.com)
 
 The hosted service provides:
+
 - Zero-config setup (just login)
-- Mobile apps for iOS/Android  
+- Mobile apps for iOS/Android
 - Web dashboard with real-time monitoring
 - Team collaboration features
 - Managed infrastructure & support
@@ -24,6 +25,7 @@ The hosted service provides:
 For developers who want to run the connector themselves:
 
 ### Prerequisites
+
 - OpenClaw installed and configured
 - Node.js 18+ and npm
 - Ekybot account (free tier available)
@@ -55,6 +57,7 @@ npm run start
 ### Configuration
 
 Create `.env` file:
+
 ```bash
 EKYBOT_API_KEY=your_api_key_here
 EKYBOT_API_URL=https://api.ekybot.com
@@ -73,6 +76,7 @@ npm run enable-telemetry
 ```
 
 This will prompt you to configure:
+
 - ✅ **Enable/disable** automatic data streaming
 - ⏱️ **Interval** - how often to send data (30-600 seconds)
 - 🌐 **WebSocket** - enable real-time updates (optional)
@@ -89,7 +93,7 @@ This will prompt you to configure:
 OpenClaw (local agents)
         ↓
 Ekybot Connector (this code)
-        ↓  
+        ↓
 Ekybot Platform (remote dashboard)
         ↓
 📱 Mobile Apps / 🌐 Web Interface
@@ -98,12 +102,14 @@ Ekybot Platform (remote dashboard)
 ### Data Transmitted
 
 **Sent to Ekybot:**
+
 - ✅ Agent status (running/stopped)
 - ✅ Performance metrics (response time, token usage)
 - ✅ Cost tracking data (model usage, API spending)
 - ✅ Conversation metadata (timing, model used)
 
 **Never sent:**
+
 - ❌ Actual conversation content
 - ❌ Prompts or responses
 - ❌ Local files or documents
@@ -112,6 +118,7 @@ Ekybot Platform (remote dashboard)
 ### Why Use Ekybot?
 
 **Remote Management:**
+
 - 📱 Control agents from your phone anywhere
 - 🌐 Web dashboard for team collaboration
 - 💰 Real-time cost monitoring and alerts
@@ -120,6 +127,7 @@ Ekybot Platform (remote dashboard)
 - 👥 Multi-user access and permissions
 
 **VS Local-Only Setup:**
+
 - No SSH needed for remote monitoring
 - Mobile access (73% of issues happen outside office hours)
 - Team collaboration without VPN setup
@@ -133,13 +141,14 @@ Ekybot Platform (remote dashboard)
 ### Components
 
 - **api-client.js** - HTTP client for Ekybot API calls
-- **config-manager.js** - OpenClaw configuration management  
+- **config-manager.js** - OpenClaw configuration management
 - **telemetry.js** - Real-time agent status streaming
 - **scripts/** - Setup and maintenance utilities
 
 ### Background Service
 
 The connector runs a lightweight Node.js process (~10MB RAM) that:
+
 - Streams agent telemetry every 60 seconds
 - Monitors OpenClaw health and status
 - Handles authentication token refresh
@@ -148,7 +157,7 @@ The connector runs a lightweight Node.js process (~10MB RAM) that:
 ### Security
 
 - 🔒 **Token-based authentication** - no passwords stored locally
-- 🌐 **HTTPS/TLS 1.3** for all API communication  
+- 🌐 **HTTPS/TLS 1.3** for all API communication
 - 🛡️ **Certificate pinning** to Ekybot endpoints
 - 📝 **Local processing priority** - agents run locally first
 - 🔍 **Open source** - audit the connector code yourself
@@ -162,7 +171,7 @@ The connector runs a lightweight Node.js process (~10MB RAM) that:
 npm run register          # Connect workspace to Ekybot
 npm run setup            # Configure OpenClaw integration
 
-# Service Management  
+# Service Management
 npm run start            # Start telemetry streaming
 npm run stop             # Stop background service
 npm run restart          # Restart service
@@ -180,18 +189,21 @@ npm run logs             # View service logs
 ### Common Issues
 
 **Connection failed:**
+
 ```bash
 npm run test-connection
 # Check API key and network connectivity
 ```
 
 **Service won't start:**
+
 ```bash
 npm run health
 # Verify OpenClaw is running and accessible
 ```
 
 **High memory usage:**
+
 ```bash
 npm run logs
 # Check for connection loops or errors
@@ -200,7 +212,7 @@ npm run logs
 ### Getting Help
 
 1. **Check logs:** `npm run logs`
-2. **Test connection:** `npm run test-connection`  
+2. **Test connection:** `npm run test-connection`
 3. **Community support:** [Ekybot Discord](https://discord.gg/ekybot)
 4. **Premium support:** Available with Ekybot Pro/Team plans
 
@@ -232,7 +244,7 @@ ekybot-connector/
 1. Fork this repository
 2. Create feature branch (`git checkout -b feature/amazing-feature`)
 3. Commit changes (`git commit -m 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing-feature`)  
+4. Push to branch (`git push origin feature/amazing-feature`)
 5. Open Pull Request
 
 ---

@@ -23,7 +23,7 @@ class OpenClawConfigManager {
       if (!fs.existsSync(this.configPath)) {
         throw new Error(`OpenClaw config not found at ${this.configPath}`);
       }
-      
+
       const configData = fs.readFileSync(this.configPath, 'utf8');
       return JSON.parse(configData);
     } catch (error) {
@@ -37,10 +37,10 @@ class OpenClawConfigManager {
     try {
       // Create backup before modifying
       this.createBackup();
-      
+
       const configData = JSON.stringify(config, null, 2);
       fs.writeFileSync(this.configPath, configData, 'utf8');
-      
+
       console.log(chalk.green(`✓ Updated OpenClaw config at ${this.configPath}`));
     } catch (error) {
       console.error(chalk.red(`Failed to write OpenClaw config: ${error.message}`));
@@ -81,7 +81,7 @@ class OpenClawConfigManager {
   addEkybotIntegration(workspaceId) {
     try {
       const config = this.readConfig();
-      
+
       // Initialize integrations if not exists
       if (!config.integrations) {
         config.integrations = {};
@@ -91,14 +91,14 @@ class OpenClawConfigManager {
       config.integrations.ekybot = {
         enabled: true,
         workspace_id: workspaceId,
-        telemetry_enabled: false,  // Disabled by default - requires opt-in
+        telemetry_enabled: false, // Disabled by default - requires opt-in
         telemetry_interval: 60000,
         endpoints: {
           api: process.env.EKYBOT_API_URL || 'https://api.ekybot.com',
-          websocket: process.env.EKYBOT_WS_URL || 'wss://api.ekybot.com/ws'
+          websocket: process.env.EKYBOT_WS_URL || 'wss://api.ekybot.com/ws',
         },
         added_at: new Date().toISOString(),
-        version: '1.0.0'
+        version: '1.0.0',
       };
 
       this.writeConfig(config);
@@ -113,10 +113,10 @@ class OpenClawConfigManager {
   removeEkybotIntegration() {
     try {
       const config = this.readConfig();
-      
+
       if (config.integrations && config.integrations.ekybot) {
         delete config.integrations.ekybot;
-        
+
         // Remove integrations object if empty
         if (Object.keys(config.integrations).length === 0) {
           delete config.integrations;
@@ -139,7 +139,11 @@ class OpenClawConfigManager {
   isEkybotConfigured() {
     try {
       const config = this.readConfig();
-      return !!(config.integrations && config.integrations.ekybot && config.integrations.ekybot.enabled);
+      return !!(
+        config.integrations &&
+        config.integrations.ekybot &&
+        config.integrations.ekybot.enabled
+      );
     } catch (error) {
       return false;
     }
@@ -150,12 +154,12 @@ class OpenClawConfigManager {
     try {
       const config = this.readConfig();
       const ekybotConfig = config.integrations?.ekybot || null;
-      
+
       if (ekybotConfig) {
         // Add API key from environment (not stored in config)
         ekybotConfig.api_key = process.env.EKYBOT_API_KEY || null;
       }
-      
+
       return ekybotConfig;
     } catch (error) {
       return null;
@@ -167,7 +171,7 @@ class OpenClawConfigManager {
     const checks = {
       configExists: fs.existsSync(this.configPath),
       configValid: false,
-      agentsDir: false
+      agentsDir: false,
     };
 
     // Check config validity
@@ -181,8 +185,8 @@ class OpenClawConfigManager {
     }
 
     // Check agents directory
-    const agentsPath = process.env.OPENCLAW_AGENTS_PATH || 
-                      path.join(os.homedir(), '.openclaw', 'agents');
+    const agentsPath =
+      process.env.OPENCLAW_AGENTS_PATH || path.join(os.homedir(), '.openclaw', 'agents');
     checks.agentsDir = fs.existsSync(agentsPath);
 
     return checks;

@@ -10,16 +10,18 @@ async function installAsService() {
   console.log(chalk.blue.bold('🔧 Install Ekybot Connector as System Service'));
   console.log(chalk.gray('This will configure the connector to start automatically.\n'));
 
-  const { serviceType } = await inquirer.prompt([{
-    type: 'list',
-    name: 'serviceType',
-    message: 'Select service type:',
-    choices: [
-      { name: 'systemd (Linux)', value: 'systemd' },
-      { name: 'launchd (macOS)', value: 'launchd' },
-      { name: 'Manual (cross-platform)', value: 'manual' }
-    ]
-  }]);
+  const { serviceType } = await inquirer.prompt([
+    {
+      type: 'list',
+      name: 'serviceType',
+      message: 'Select service type:',
+      choices: [
+        { name: 'systemd (Linux)', value: 'systemd' },
+        { name: 'launchd (macOS)', value: 'launchd' },
+        { name: 'Manual (cross-platform)', value: 'manual' },
+      ],
+    },
+  ]);
 
   switch (serviceType) {
     case 'systemd':
@@ -53,18 +55,17 @@ WantedBy=multi-user.target
 `;
 
   const servicePath = '/etc/systemd/system/ekybot-connector.service';
-  
+
   try {
     console.log(chalk.blue('Creating systemd service file...'));
     console.log(chalk.gray(`Service file: ${servicePath}`));
-    
+
     fs.writeFileSync(servicePath, serviceContent);
-    
+
     console.log(chalk.green('✓ Service file created'));
     console.log(chalk.blue('To enable and start the service:'));
     console.log(chalk.gray('  sudo systemctl enable ekybot-connector'));
     console.log(chalk.gray('  sudo systemctl start ekybot-connector'));
-    
   } catch (error) {
     console.error(chalk.red(`❌ Failed to create service: ${error.message}`));
     console.error(chalk.yellow('You may need to run this script with sudo'));
@@ -94,17 +95,16 @@ async function installLaunchdService() {
 `;
 
   const plistPath = path.join(process.env.HOME, 'Library/LaunchAgents/com.ekybot.connector.plist');
-  
+
   try {
     console.log(chalk.blue('Creating launchd plist file...'));
     console.log(chalk.gray(`Plist file: ${plistPath}`));
-    
+
     fs.writeFileSync(plistPath, plistContent);
-    
+
     console.log(chalk.green('✓ Plist file created'));
     console.log(chalk.blue('To load and start the service:'));
     console.log(chalk.gray('  launchctl load ~/Library/LaunchAgents/com.ekybot.connector.plist'));
-    
   } catch (error) {
     console.error(chalk.red(`❌ Failed to create plist: ${error.message}`));
   }
@@ -129,7 +129,7 @@ function showManualInstructions() {
 
 // Run if called directly
 if (require.main === module) {
-  installAsService().catch(error => {
+  installAsService().catch((error) => {
     console.error(chalk.red(`Installation failed: ${error.message}`));
     process.exit(1);
   });

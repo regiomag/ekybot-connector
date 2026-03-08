@@ -19,11 +19,13 @@ async function enableTelemetry() {
   }
 
   const currentConfig = configManager.getEkybotConfig();
-  
+
   console.log(chalk.blue('📋 Current telemetry status:'));
   console.log(chalk.gray(`  Workspace: ${currentConfig.workspace_id}`));
-  console.log(chalk.gray(`  Telemetry: ${currentConfig.telemetry_enabled ? 'Enabled' : 'Disabled'}`));
-  
+  console.log(
+    chalk.gray(`  Telemetry: ${currentConfig.telemetry_enabled ? 'Enabled' : 'Disabled'}`)
+  );
+
   if (currentConfig.telemetry_enabled) {
     console.log(chalk.gray(`  Interval: ${currentConfig.telemetry_interval}ms`));
   }
@@ -49,7 +51,7 @@ async function enableTelemetry() {
       type: 'confirm',
       name: 'enableTelemetry',
       message: 'Enable automatic telemetry streaming?',
-      default: currentConfig.telemetry_enabled || false
+      default: currentConfig.telemetry_enabled || false,
     },
     {
       type: 'number',
@@ -65,52 +67,50 @@ async function enableTelemetry() {
           return 'Maximum interval is 600 seconds (10 minutes)';
         }
         return true;
-      }
+      },
     },
     {
       type: 'confirm',
       name: 'enableWebSocket',
       message: 'Enable real-time WebSocket streaming? (for live dashboard updates)',
       default: false,
-      when: (answers) => answers.enableTelemetry
-    }
+      when: (answers) => answers.enableTelemetry,
+    },
   ]);
 
   try {
     // Update configuration
     const config = configManager.readConfig();
-    
+
     config.integrations.ekybot = {
       ...config.integrations.ekybot,
       telemetry_enabled: answers.enableTelemetry,
       telemetry_interval: answers.enableTelemetry ? answers.interval * 1000 : 60000,
       websocket_enabled: answers.enableWebSocket || false,
-      updated_at: new Date().toISOString()
+      updated_at: new Date().toISOString(),
     };
 
     configManager.writeConfig(config);
-    
+
     console.log(chalk.green('\n✅ Telemetry configuration updated!'));
-    
+
     if (answers.enableTelemetry) {
       console.log(chalk.green('📊 Telemetry is now enabled'));
       console.log(chalk.gray(`   Interval: ${answers.interval} seconds`));
       console.log(chalk.gray(`   WebSocket: ${answers.enableWebSocket ? 'Enabled' : 'Disabled'}`));
-      
+
       console.log(chalk.blue('\n💡 Next steps:'));
       console.log(chalk.blue('• Run "npm run start" to begin streaming'));
       console.log(chalk.blue('• Visit https://ekybot.com to view your dashboard'));
       console.log(chalk.blue('• Use "npm run health" to monitor the connection'));
-      
     } else {
       console.log(chalk.yellow('📊 Telemetry is now disabled'));
       console.log(chalk.gray('Your agents will run normally but no data will be streamed'));
-      
+
       console.log(chalk.blue('\n💡 You can enable telemetry anytime:'));
       console.log(chalk.blue('• Run this script again: "npm run enable-telemetry"'));
       console.log(chalk.blue('• Or use: "npm run setup" for full configuration'));
     }
-
   } catch (error) {
     console.error(chalk.red(`\n❌ Failed to update configuration: ${error.message}`));
     process.exit(1);
@@ -119,7 +119,7 @@ async function enableTelemetry() {
 
 // Run if called directly
 if (require.main === module) {
-  enableTelemetry().catch(error => {
+  enableTelemetry().catch((error) => {
     console.error(chalk.red(`Configuration failed: ${error.message}`));
     process.exit(1);
   });

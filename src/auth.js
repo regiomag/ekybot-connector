@@ -36,7 +36,7 @@ class AuthManager {
   saveToken(token) {
     try {
       let envContent = '';
-      
+
       // Read existing .env if it exists
       if (fs.existsSync(this.configFile)) {
         envContent = fs.readFileSync(this.configFile, 'utf8');
@@ -54,7 +54,7 @@ class AuthManager {
 
       fs.writeFileSync(this.configFile, envContent);
       console.log(chalk.green(`✓ API token saved to ${this.configFile}`));
-      
+
       // Remove legacy token file if it exists
       if (fs.existsSync(this.tokenFile)) {
         fs.unlinkSync(this.tokenFile);
@@ -71,13 +71,13 @@ class AuthManager {
   // Validate token format
   isValidToken(token) {
     if (!token) return false;
-    
+
     // Basic validation - tokens should be at least 20 characters
     if (token.length < 20) return false;
-    
+
     // Should not contain whitespace
     if (/\s/.test(token)) return false;
-    
+
     return true;
   }
 
@@ -88,7 +88,7 @@ class AuthManager {
       if (fs.existsSync(this.configFile)) {
         let envContent = fs.readFileSync(this.configFile, 'utf8');
         envContent = envContent.replace(/EKYBOT_API_KEY=.+\n?/g, '');
-        
+
         if (envContent.trim()) {
           fs.writeFileSync(this.configFile, envContent);
         } else {
@@ -112,7 +112,7 @@ class AuthManager {
   // Get token info (for debugging)
   getTokenInfo() {
     const token = this.loadToken();
-    
+
     if (!token) {
       return { exists: false };
     }
@@ -121,9 +121,11 @@ class AuthManager {
       exists: true,
       length: token.length,
       prefix: token.substring(0, 8) + '...',
-      source: process.env.EKYBOT_API_KEY ? 'environment' : 
-              fs.existsSync(this.configFile) ? '.env file' : 
-              'token file'
+      source: process.env.EKYBOT_API_KEY
+        ? 'environment'
+        : fs.existsSync(this.configFile)
+          ? '.env file'
+          : 'token file',
     };
   }
 }

@@ -8,5 +8,5 @@ const TelemetryCollector = require('./telemetry');
 module.exports = {
   EkybotApiClient,
   OpenClawConfigManager,
-  TelemetryCollector
+  TelemetryCollector,
 };

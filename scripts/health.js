@@ -16,7 +16,7 @@ async function checkHealth() {
     service: { status: 'unknown', details: '' },
     openclaw: { status: 'unknown', details: '' },
     ekybot_config: { status: 'unknown', details: '' },
-    api_connection: { status: 'unknown', details: '' }
+    api_connection: { status: 'unknown', details: '' },
   };
 
   // 1. Check service status
@@ -57,7 +57,7 @@ async function checkHealth() {
       if (!validation.configExists) issues.push('Config missing');
       if (!validation.configValid) issues.push('Config invalid');
       if (!validation.agentsDir) issues.push('Agents directory missing');
-      
+
       results.openclaw = { status: 'error', details: issues.join(', ') };
       console.log(chalk.red(`  ❌ OpenClaw issues: ${issues.join(', ')}`));
     }
@@ -70,16 +70,18 @@ async function checkHealth() {
   console.log(chalk.blue('\n⚙️  Checking Ekybot configuration...'));
   try {
     const configManager = new OpenClawConfigManager();
-    
+
     if (configManager.isEkybotConfigured()) {
       const config = configManager.getEkybotConfig();
-      results.ekybot_config = { 
-        status: 'ok', 
-        details: `Workspace: ${config.workspace_id}` 
+      results.ekybot_config = {
+        status: 'ok',
+        details: `Workspace: ${config.workspace_id}`,
       };
       console.log(chalk.green('  ✓ Ekybot integration is configured'));
       console.log(chalk.gray(`    Workspace ID: ${config.workspace_id}`));
-      console.log(chalk.gray(`    Telemetry: ${config.telemetry_enabled ? 'Enabled' : 'Disabled'}`));
+      console.log(
+        chalk.gray(`    Telemetry: ${config.telemetry_enabled ? 'Enabled' : 'Disabled'}`)
+      );
       console.log(chalk.gray(`    Interval: ${config.telemetry_interval}ms`));
     } else {
       results.ekybot_config = { status: 'missing', details: 'Not configured' };
@@ -95,19 +97,19 @@ async function checkHealth() {
   console.log(chalk.blue('\n🌐 Checking API connection...'));
   try {
     const configManager = new OpenClawConfigManager();
-    
+
     if (configManager.isEkybotConfigured()) {
       const config = configManager.getEkybotConfig();
       const apiClient = new EkybotApiClient(config.api_key, config.endpoints?.api);
-      
+
       const startTime = Date.now();
       const response = await apiClient.healthCheck();
       const responseTime = Date.now() - startTime;
-      
+
       if (response.status === 'ok' || response.status === 'healthy') {
-        results.api_connection = { 
-          status: 'ok', 
-          details: `Response time: ${responseTime}ms` 
+        results.api_connection = {
+          status: 'ok',
+          details: `Response time: ${responseTime}ms`,
         };
         console.log(chalk.green(`  ✓ API connection is healthy (${responseTime}ms)`));
       } else {
@@ -125,27 +127,31 @@ async function checkHealth() {
 
   // Summary
   console.log(chalk.blue.bold('\n📊 Health Check Summary:'));
-  
+
   const statusColors = {
-    'ok': chalk.green,
-    'running': chalk.green,
-    'stopped': chalk.yellow,
-    'missing': chalk.yellow,
-    'skipped': chalk.gray,
-    'degraded': chalk.yellow,
-    'error': chalk.red,
-    'unknown': chalk.red
+    ok: chalk.green,
+    running: chalk.green,
+    stopped: chalk.yellow,
+    missing: chalk.yellow,
+    skipped: chalk.gray,
+    degraded: chalk.yellow,
+    error: chalk.red,
+    unknown: chalk.red,
   };
 
   Object.entries(results).forEach(([component, result]) => {
     const colorFn = statusColors[result.status] || chalk.red;
-    console.log(`  ${component.padEnd(15)}: ${colorFn(result.status)} ${chalk.gray(result.details)}`);
+    console.log(
+      `  ${component.padEnd(15)}: ${colorFn(result.status)} ${chalk.gray(result.details)}`
+    );
   });
 
   // Overall status
-  const hasErrors = Object.values(results).some(r => r.status === 'error');
-  const hasWarnings = Object.values(results).some(r => r.status === 'stopped' || r.status === 'missing');
-  
+  const hasErrors = Object.values(results).some((r) => r.status === 'error');
+  const hasWarnings = Object.values(results).some(
+    (r) => r.status === 'stopped' || r.status === 'missing'
+  );
+
   if (hasErrors) {
     console.log(chalk.red('\n❌ Health check failed - errors detected'));
     process.exit(1);
@@ -160,7 +166,7 @@ async function checkHealth() {
 
 // Run if called directly
 if (require.main === module) {
-  checkHealth().catch(error => {
+  checkHealth().catch((error) => {
     console.error(chalk.red(`Health check failed: ${error.message}`));
     process.exit(1);
   });

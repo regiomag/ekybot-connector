@@ -16,10 +16,10 @@ function stopService() {
 
   try {
     const pid = parseInt(fs.readFileSync(PID_FILE, 'utf8'));
-    
+
     // Try to kill the process
     process.kill(pid, 'SIGTERM');
-    
+
     // Wait a moment and check if it's still running
     setTimeout(() => {
       try {
@@ -29,15 +29,14 @@ function stopService() {
       } catch (error) {
         // Process is gone, which is what we want
       }
-      
+
       // Remove PID file
       if (fs.existsSync(PID_FILE)) {
         fs.unlinkSync(PID_FILE);
       }
-      
+
       console.log(chalk.green('✓ Service stopped'));
     }, 2000);
-
   } catch (error) {
     if (error.code === 'ESRCH') {
       // Process not found, remove stale PID file

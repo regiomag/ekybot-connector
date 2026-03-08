@@ -7,8 +7,8 @@ class EkybotApiClient {
     this.apiUrl = apiUrl.replace(/\/$/, ''); // Remove trailing slash
     this.headers = {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-      'User-Agent': 'ekybot-connector/1.0.0'
+      Authorization: `Bearer ${apiKey}`,
+      'User-Agent': 'ekybot-connector/1.0.0',
     };
   }
 
@@ -17,7 +17,7 @@ class EkybotApiClient {
     const options = {
       method,
       headers: this.headers,
-      timeout: 30000
+      timeout: 30000,
     };
 
     if (data) {
@@ -26,10 +26,12 @@ class EkybotApiClient {
 
     try {
       const response = await fetch(url, options);
-      
+
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`API request failed: ${response.status} ${response.statusText} - ${errorText}`);
+        throw new Error(
+          `API request failed: ${response.status} ${response.statusText} - ${errorText}`
+        );
       }
 
       const responseData = await response.json();
@@ -45,7 +47,7 @@ class EkybotApiClient {
     return this.request('POST', '/v1/workspaces', {
       name: workspaceName,
       type: 'openclaw',
-      connector_version: '1.0.0'
+      connector_version: '1.0.0',
     });
   }
 
@@ -56,7 +58,7 @@ class EkybotApiClient {
   async updateWorkspaceStatus(workspaceId, status) {
     return this.request('PATCH', `/v1/workspaces/${workspaceId}`, {
       status: status,
-      last_seen: new Date().toISOString()
+      last_seen: new Date().toISOString(),
     });
   }
 
@@ -68,7 +70,7 @@ class EkybotApiClient {
   async updateAgentStatus(workspaceId, agentId, status) {
     return this.request('PATCH', `/v1/workspaces/${workspaceId}/agents/${agentId}`, {
       status: status,
-      last_seen: new Date().toISOString()
+      last_seen: new Date().toISOString(),
     });
   }
 
@@ -76,13 +78,13 @@ class EkybotApiClient {
   async sendTelemetry(workspaceId, telemetryData) {
     return this.request('POST', `/v1/workspaces/${workspaceId}/telemetry`, {
       timestamp: new Date().toISOString(),
-      ...telemetryData
+      ...telemetryData,
     });
   }
 
   async sendBatchTelemetry(workspaceId, telemetryBatch) {
     return this.request('POST', `/v1/workspaces/${workspaceId}/telemetry/batch`, {
-      data: telemetryBatch
+      data: telemetryBatch,
     });
   }
 

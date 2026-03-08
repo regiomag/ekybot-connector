@@ -19,14 +19,16 @@ function showLogs() {
   try {
     const logContent = fs.readFileSync(LOG_FILE, 'utf8');
     const lines = logContent.trim().split('\n');
-    
+
     // Show last 50 lines by default
     const maxLines = process.argv.includes('--all') ? lines.length : 50;
     const displayLines = lines.slice(-maxLines);
 
-    console.log(chalk.gray(`Showing last ${displayLines.length} lines (use --all for full log):\n`));
-    
-    displayLines.forEach(line => {
+    console.log(
+      chalk.gray(`Showing last ${displayLines.length} lines (use --all for full log):\n`)
+    );
+
+    displayLines.forEach((line) => {
       // Color-code log levels
       if (line.includes('[ERROR]') || line.includes('❌')) {
         console.log(chalk.red(line));
@@ -46,7 +48,6 @@ function showLogs() {
     console.log(chalk.gray(`\nLog file: ${LOG_FILE}`));
     console.log(chalk.gray(`Size: ${(stats.size / 1024).toFixed(2)} KB`));
     console.log(chalk.gray(`Last modified: ${stats.mtime.toISOString()}`));
-
   } catch (error) {
     console.error(chalk.red(`❌ Failed to read log file: ${error.message}`));
   }
@@ -68,11 +69,11 @@ function followLogs() {
     }
 
     const currentSize = fs.statSync(LOG_FILE).size;
-    
+
     if (currentSize > lastSize) {
-      const stream = fs.createReadStream(LOG_FILE, { 
+      const stream = fs.createReadStream(LOG_FILE, {
         start: lastSize,
-        end: currentSize - 1
+        end: currentSize - 1,
       });
 
       let buffer = '';
@@ -81,10 +82,13 @@ function followLogs() {
       });
 
       stream.on('end', () => {
-        const newLines = buffer.trim().split('\n').filter(line => line.length > 0);
-        newLines.forEach(line => {
+        const newLines = buffer
+          .trim()
+          .split('\n')
+          .filter((line) => line.length > 0);
+        newLines.forEach((line) => {
           const timestamp = new Date().toISOString();
-          
+
           if (line.includes('[ERROR]') || line.includes('❌')) {
             console.log(chalk.red(`[${timestamp}] ${line}`));
           } else if (line.includes('[WARN]') || line.includes('⚠️')) {
@@ -117,7 +121,7 @@ function clearLogs() {
 // Main function
 function main() {
   const args = process.argv.slice(2);
-  
+
   if (args.includes('--follow') || args.includes('-f')) {
     followLogs();
   } else if (args.includes('--clear')) {

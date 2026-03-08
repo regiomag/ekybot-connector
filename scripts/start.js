@@ -48,7 +48,7 @@ async function startTelemetryService() {
 
   // Load configuration
   const configManager = new OpenClawConfigManager();
-  
+
   if (!configManager.isEkybotConfigured()) {
     console.error(chalk.red('❌ Ekybot integration not configured'));
     console.error(chalk.yellow('Run "npm run register" first to set up the connection'));
@@ -56,7 +56,7 @@ async function startTelemetryService() {
   }
 
   const config = configManager.getEkybotConfig();
-  
+
   if (!config.workspace_id || !config.api_key) {
     console.error(chalk.red('❌ Invalid Ekybot configuration'));
     console.error(chalk.yellow('Run "npm run register" to reconfigure'));
@@ -67,7 +67,7 @@ async function startTelemetryService() {
     // Initialize telemetry collector
     const telemetry = new TelemetryCollector(config.api_key, config.workspace_id, {
       interval: config.telemetry_interval || 60000,
-      wsUrl: config.endpoints?.websocket
+      wsUrl: config.endpoints?.websocket,
     });
 
     // Write PID file
@@ -86,17 +86,17 @@ async function startTelemetryService() {
       isShuttingDown = true;
 
       console.log(chalk.yellow('\n📋 Shutting down...'));
-      
+
       telemetry.stop();
       removePidFile();
-      
+
       console.log(chalk.green('✓ Service stopped gracefully'));
       process.exit(0);
     }
 
     // Start telemetry collection
     await telemetry.start();
-    
+
     console.log(chalk.green('✅ Ekybot Connector is now running'));
     console.log(chalk.gray(`Workspace ID: ${config.workspace_id}`));
     console.log(chalk.gray(`Telemetry interval: ${config.telemetry_interval || 60000}ms`));
@@ -104,15 +104,21 @@ async function startTelemetryService() {
     console.log(chalk.gray('\nPress Ctrl+C to stop\n'));
 
     // Keep process alive and show periodic status
-    setInterval(() => {
-      const status = telemetry.getStatus();
-      const timestamp = new Date().toISOString();
-      
-      console.log(chalk.blue(`[${timestamp}] Status: ${status.running ? 'Running' : 'Stopped'} | ` +
-                             `WebSocket: ${status.websocket_connected ? 'Connected' : 'Disconnected'} | ` +
-                             `Buffered: ${status.buffered_entries}`));
-    }, 5 * 60 * 1000); // Status update every 5 minutes
+    setInterval(
+      () => {
+        const status = telemetry.getStatus();
+        const timestamp = new Date().toISOString();
 
+        console.log(
+          chalk.blue(
+            `[${timestamp}] Status: ${status.running ? 'Running' : 'Stopped'} | ` +
+              `WebSocket: ${status.websocket_connected ? 'Connected' : 'Disconnected'} | ` +
+              `Buffered: ${status.buffered_entries}`
+          )
+        );
+      },
+      5 * 60 * 1000
+    ); // Status update every 5 minutes
   } catch (error) {
     console.error(chalk.red(`❌ Failed to start service: ${error.message}`));
     removePidFile();
@@ -122,7 +128,7 @@ async function startTelemetryService() {
 
 // Run if called directly
 if (require.main === module) {
-  startTelemetryService().catch(error => {
+  startTelemetryService().catch((error) => {
     console.error(chalk.red(`Fatal error: ${error.message}`));
     removePidFile();
     process.exit(1);
