@@ -52,8 +52,8 @@ class AuthManager {
         envContent += `EKYBOT_API_KEY=${token}\n`;
       }
 
-      fs.writeFileSync(this.configFile, envContent);
-      console.log(chalk.green(`✓ API token saved to ${this.configFile}`));
+      fs.writeFileSync(this.configFile, envContent, { mode: 0o600 }); // Owner-only read/write
+      console.log(chalk.green(`✓ API token saved to ${this.configFile} (permissions: 600)`));
 
       // Remove legacy token file if it exists
       if (fs.existsSync(this.tokenFile)) {

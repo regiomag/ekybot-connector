@@ -32,14 +32,16 @@ class OpenClawConfigManager {
     }
   }
 
-  // Write updated configuration
+  // Write updated configuration (atomic: write temp file then rename)
   writeConfig(config) {
     try {
       // Create backup before modifying
       this.createBackup();
 
       const configData = JSON.stringify(config, null, 2);
-      fs.writeFileSync(this.configPath, configData, 'utf8');
+      const tmpPath = `${this.configPath}.tmp.${process.pid}`;
+      fs.writeFileSync(tmpPath, configData, 'utf8');
+      fs.renameSync(tmpPath, this.configPath); // Atomic on same filesystem
 
       console.log(chalk.green(`✓ Updated OpenClaw config at ${this.configPath}`));
     } catch (error) {

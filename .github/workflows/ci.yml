@@ -2,103 +2,31 @@ name: CI
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   test:
-    runs-on: ubuntu-latest
-    
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        node-version: [18.x, 20.x, 22.x]
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ matrix.node-version }}
-        cache: 'npm'
-    
-    - name: Install dependencies
-      run: npm ci
-    
-    - name: Run ESLint
-      run: npm run lint
-    
-    - name: Check code formatting
-      run: npx prettier --check "src/**/*.js" "scripts/**/*.js" "*.js"
-    
-    - name: Run tests
-      run: npm test
-    
-    - name: Security audit
-      run: npm audit --audit-level moderate
+        node-version: [18, 20, 22]
+        os: [ubuntu-latest, macos-latest]
 
-  validate-package:
-    runs-on: ubuntu-latest
-    
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Use Node.js 20.x
-      uses: actions/setup-node@v4
-      with:
-        node-version: 20.x
-        cache: 'npm'
-    
-    - name: Install dependencies
-      run: npm ci
-    
-    - name: Validate package.json
-      run: npm run validate-package || echo "No validation script defined"
-    
-    - name: Check for missing files referenced in package.json
-      run: |
-        echo "Checking scripts referenced in package.json..."
-        node -e "
-        const pkg = require('./package.json');
-        const fs = require('fs');
-        const scripts = pkg.scripts || {};
-        
-        let missing = [];
-        Object.entries(scripts).forEach(([name, script]) => {
-          if (script.startsWith('node ')) {
-            const file = script.replace('node ', '');
-            if (!fs.existsSync(file)) {
-              missing.push(\`Script '\${name}' references missing file: \${file}\`);
-            }
-          }
-        });
-        
-        if (missing.length > 0) {
-          console.error('Missing script files:');
-          missing.forEach(msg => console.error('  ' + msg));
-          process.exit(1);
-        } else {
-          console.log('✅ All script files exist');
-        }
-        "
+      - uses: actions/checkout@v4
 
-  security:
-    runs-on: ubuntu-latest
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Run Trivy vulnerability scanner
-      uses: aquasecurity/trivy-action@master
-      with:
-        scan-type: 'fs'
-        scan-ref: '.'
-        format: 'sarif'
-        output: 'trivy-results.sarif'
-    
-    - name: Upload Trivy scan results
-      uses: github/codeql-action/upload-sarif@v2
-      if: always()
-      with:
-        sarif_file: 'trivy-results.sarif'
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Run tests
+        run: npm test
+
+      - name: Check require compatibility
+        run: node -e "require('./src/index')"

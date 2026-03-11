@@ -19,6 +19,10 @@ class TelemetryCollector {
     this.ws = null;
     this.wsUrl = options.wsUrl || process.env.EKYBOT_WS_URL || 'wss://api.ekybot.com/ws';
     this.enableWebSocket = options.enableWebSocket || false; // Opt-in only
+    this.wsReconnectAttempts = 0;
+    this.wsMaxReconnectAttempts = 50;
+    this.wsBaseDelay = 5000; // 5s initial
+    this.wsMaxDelay = 300000; // 5min cap
   }
 
   // Start telemetry collection
@@ -93,6 +97,7 @@ class TelemetryCollector {
 
       this.ws.on('open', () => {
         console.log(chalk.green('✓ Real-time telemetry connection established'));
+        this.wsReconnectAttempts = 0; // Reset on successful connection
       });
 
       this.ws.on('error', (error) => {
@@ -102,12 +107,16 @@ class TelemetryCollector {
       this.ws.on('close', () => {
         console.log(chalk.yellow('WebSocket connection closed'));
 
-        // Reconnect if still running
-        if (this.isRunning) {
+        // Reconnect with exponential backoff and max attempts
+        if (this.isRunning && this.wsReconnectAttempts < this.wsMaxReconnectAttempts) {
+          this.wsReconnectAttempts++;
+          const delay = Math.min(this.wsBaseDelay * Math.pow(2, this.wsReconnectAttempts - 1), this.wsMaxDelay);
+          console.log(chalk.blue(`Reconnecting WebSocket in ${delay/1000}s (attempt ${this.wsReconnectAttempts}/${this.wsMaxReconnectAttempts})...`));
           setTimeout(() => {
-            console.log(chalk.blue('Reconnecting WebSocket...'));
             this.initializeWebSocket();
-          }, 5000);
+          }, delay);
+        } else if (this.wsReconnectAttempts >= this.wsMaxReconnectAttempts) {
+          console.error(chalk.red(`WebSocket reconnection limit reached (${this.wsMaxReconnectAttempts}). Giving up. HTTP telemetry continues.`));
         }
       });
     } catch (error) {
@@ -182,22 +191,17 @@ class TelemetryCollector {
     return telemetryData;
   }
 
-  // Collect system-level metrics
+  // Collect system-level metrics (minimal — no fingerprinting)
   async collectSystemMetrics() {
     return {
       platform: os.platform(),
-      arch: os.arch(),
       node_version: process.version,
       uptime: Math.floor(process.uptime()),
       memory: {
-        used: process.memoryUsage().heapUsed,
-        total: process.memoryUsage().heapTotal,
-        system_free: os.freemem(),
-        system_total: os.totalmem(),
-      },
-      cpu: {
-        count: os.cpus().length,
-        load: os.loadavg(),
+        connector_heap_used: process.memoryUsage().heapUsed,
+        connector_heap_total: process.memoryUsage().heapTotal,
+        // System RAM/CPU details removed — not needed for monitoring,
+        // and constitutes machine fingerprinting per audit recommendation
       },
     };
   }

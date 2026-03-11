@@ -36,7 +36,20 @@ async function installAsService() {
   }
 }
 
+// Escape a string for safe inclusion in service files (prevent injection)
+function escapeServicePath(str) {
+  // Reject paths with control characters or quotes that could break service files
+  if (/[\x00-\x1f"'`$\\]/.test(str)) {
+    throw new Error(`Unsafe path detected: "${str}". Rename directory to remove special characters.`);
+  }
+  return str;
+}
+
 async function installSystemdService() {
+  const cwd = escapeServicePath(process.cwd());
+  const execPath = escapeServicePath(process.execPath);
+  const startScript = escapeServicePath(path.join(__dirname, 'start.js'));
+
   const serviceContent = `[Unit]
 Description=Ekybot Connector
 After=network.target
@@ -44,8 +57,8 @@ After=network.target
 [Service]
 Type=simple
 User=$USER
-WorkingDirectory=${process.cwd()}
-ExecStart=${process.execPath} ${path.join(__dirname, 'start.js')}
+WorkingDirectory=${cwd}
+ExecStart=${execPath} ${startScript}
 Restart=always
 RestartSec=10
 Environment=NODE_ENV=production
@@ -73,6 +86,10 @@ WantedBy=multi-user.target
 }
 
 async function installLaunchdService() {
+  const cwd = escapeServicePath(process.cwd());
+  const execPath = escapeServicePath(process.execPath);
+  const startScript = escapeServicePath(path.join(__dirname, 'start.js'));
+
   const plistContent = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -81,11 +98,11 @@ async function installLaunchdService() {
     <string>com.ekybot.connector</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${process.execPath}</string>
-        <string>${path.join(__dirname, 'start.js')}</string>
+        <string>${execPath}</string>
+        <string>${startScript}</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>${process.cwd()}</string>
+    <string>${cwd}</string>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>

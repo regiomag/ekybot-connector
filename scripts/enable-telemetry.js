@@ -38,11 +38,14 @@ async function enableTelemetry() {
   console.log(chalk.gray('• Cost tracking (token usage, model costs)'));
   console.log(chalk.gray('• Conversation metadata (timing, model used)'));
   console.log('');
-  console.log(chalk.yellow('🛡️  What is never sent:'));
-  console.log(chalk.gray('• Actual conversation content or prompts'));
+  console.log(chalk.yellow('🛡️  What telemetry never sends:'));
+  console.log(chalk.gray('• Conversation content or prompts (only metadata: timing, model, token count)'));
   console.log(chalk.gray('• Local files or documents'));
   console.log(chalk.gray('• Credentials or API keys'));
   console.log(chalk.gray('• Personal or sensitive information'));
+  console.log('');
+  console.log(chalk.yellow('ℹ️  Note: Conversation content IS transmitted separately'));
+  console.log(chalk.gray('  when using the Ekybot chat UI (web/mobile) — that\'s the chat relay, not telemetry.'));
   console.log('');
 
   // Configuration options

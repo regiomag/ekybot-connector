@@ -108,17 +108,17 @@ Ekybot Platform (remote dashboard)
 - ✅ Cost tracking data (model usage, API spending)
 - ✅ Conversation metadata (timing, model used)
 
-**Never sent:**
+**Never sent by telemetry:**
 
-- ❌ Local files or documents (unless explicitly shared)
+- ❌ Local files or documents
 - ❌ Credentials or API keys (stored locally only)
 - ❌ System configuration files
 - ❌ SSH keys or authentication tokens
 
-**⚠️ Privacy Note:**
-- **Conversation content IS transmitted** to enable web/mobile interface display
-- **Messages visible in Ekybot UI** come from your OpenClaw agents  
-- **User controls data sharing** through telemetry opt-in/out settings
+**⚠️ Important — Conversation Content:**
+- **Conversation content IS transmitted** when you use the Ekybot chat interface (web/mobile). This is how the UI displays your agent conversations — same as any chat app.
+- **Telemetry does NOT transmit conversation content.** It only sends metadata (timing, model used, token counts).
+- **You control everything:** telemetry is opt-in, and the chat relay requires explicit gateway configuration.
 
 ### Why Use Ekybot?
 
