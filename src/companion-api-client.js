@@ -76,6 +76,14 @@ class EkybotCompanionApiClient {
     return this.request('GET', `/api/companion/machines/${machineId}/desired-state`);
   }
 
+  async updateOperation(machineId, operationId, payload) {
+    return this.request(
+      'PATCH',
+      `/api/companion/machines/${machineId}/operations/${operationId}`,
+      payload
+    );
+  }
+
   async ping() {
     try {
       const machines = await this.listMachines();

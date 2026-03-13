@@ -16,6 +16,7 @@ describe('Ekybot Connector Tests', () => {
         'src/index.js',
         'src/api-client.js',
         'src/companion-api-client.js',
+        'src/companion-executor.js',
         'src/companion-inventory.js',
         'src/companion-state-store.js',
         'src/config-manager.js',
@@ -58,6 +59,10 @@ describe('Ekybot Connector Tests', () => {
       assert.ok(
         connector.EkybotCompanionApiClient,
         'Missing EkybotCompanionApiClient export'
+      );
+      assert.ok(
+        connector.EkybotCompanionExecutor,
+        'Missing EkybotCompanionExecutor export'
       );
       assert.ok(
         connector.EkybotCompanionStateStore,

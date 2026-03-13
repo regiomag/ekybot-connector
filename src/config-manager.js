@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -23,7 +24,11 @@ class OpenClawConfigManager {
       return envPath.replace('~', os.homedir());
     }
 
-    return path.join(os.homedir(), '.openclaw', 'managed', 'ekybot.agents.json');
+    return path.join(os.homedir(), '.openclaw', 'managed', 'ekybot.agents.json5');
+  }
+
+  resolveHomePath(filePath) {
+    return filePath.replace(/^~(?=$|\/|\\)/, os.homedir());
   }
 
   // Read current OpenClaw configuration
@@ -57,6 +62,15 @@ class OpenClawConfigManager {
       console.error(chalk.red(`Failed to write OpenClaw config: ${error.message}`));
       throw error;
     }
+  }
+
+  writeFileAtomic(targetPath, content) {
+    const resolvedPath = this.resolveHomePath(targetPath);
+    fs.mkdirSync(path.dirname(resolvedPath), { recursive: true });
+    const tmpPath = `${resolvedPath}.tmp.${process.pid}`;
+    fs.writeFileSync(tmpPath, content, 'utf8');
+    fs.renameSync(tmpPath, resolvedPath);
+    return resolvedPath;
   }
 
   // Create backup of current configuration
@@ -113,6 +127,64 @@ class OpenClawConfigManager {
     } catch (error) {
       return [];
     }
+  }
+
+  ensureManagedInclude(managedFragmentPath = this.getManagedFragmentPath()) {
+    const config = this.readConfig();
+    const includePath = managedFragmentPath;
+    const currentIncludes = this.getIncludePaths();
+    const alreadyIncluded = currentIncludes.includes(includePath);
+
+    if (alreadyIncluded) {
+      return { updated: false, includePath, configPath: this.configPath };
+    }
+
+    const nextIncludes = [...currentIncludes, includePath];
+    config.$include = nextIncludes;
+
+    if ('include' in config) {
+      delete config.include;
+    }
+
+    this.writeConfig(config);
+    return { updated: true, includePath, configPath: this.configPath };
+  }
+
+  writeManagedFragment(desiredState) {
+    const fragmentPath = this.resolveHomePath(
+      desiredState.managedFragmentPath || this.getManagedFragmentPath()
+    );
+
+    const fragment = {
+      generatedBy: 'ekybot-companion',
+      generatedAt: new Date().toISOString(),
+      desiredConfigVersion: desiredState.desiredConfigVersion || 0,
+      agents: {
+        list: (desiredState.agents || []).map((agent) => ({
+          id: agent.openclawAgentId,
+          name: agent.name,
+          provider: agent.provider || null,
+          model: agent.model,
+          workspace: agent.workspacePath || null,
+          channelKey: agent.channelKey || null,
+          projectId: agent.projectId || null,
+          metadata: {
+            ekybotManaged: true,
+            managedBy: 'ekybot-companion',
+            templateVersion: agent.templateVersion || null,
+          },
+        })),
+      },
+      bindings: desiredState.bindings || [],
+    };
+
+    const content = `${JSON.stringify(fragment, null, 2)}\n`;
+    this.writeFileAtomic(fragmentPath, content);
+
+    return {
+      fragmentPath,
+      fragmentHash: crypto.createHash('sha256').update(content).digest('hex'),
+    };
   }
 
   listAgents() {
