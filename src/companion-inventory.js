@@ -83,6 +83,8 @@ class OpenClawInventoryCollector {
         ownership: agent.ownership,
         model: agent.model,
         workspacePath: agent.workspacePath,
+        channelKey: agent.channelKey,
+        projectHint: agent.projectKey,
         bindings: Array.isArray(agent.metadata?.bindings) ? agent.metadata.bindings : [],
         fingerprint: null,
         warnings: [],
