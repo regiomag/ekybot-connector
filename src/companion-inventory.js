@@ -94,17 +94,21 @@ class OpenClawInventoryCollector {
 
   toHeartbeatPayload(machineId) {
     const inventory = this.collect();
-
-    return {
+    const heartbeat = {
       protocolVersion: inventory.version,
       machineId,
       status: inventory.validation.configExists && inventory.validation.configValid ? 'online' : 'error',
       lastSeenAt: inventory.collectedAt,
       openclawReachable: inventory.validation.configExists && inventory.validation.configValid,
-      plotterHealthy: null,
       pendingOperationCount: 0,
       activeConfigHash: inventory.openClaw.configHash,
     };
+
+    if (typeof inventory.plotterHealthy === 'boolean') {
+      heartbeat.plotterHealthy = inventory.plotterHealthy;
+    }
+
+    return heartbeat;
   }
 }
 
