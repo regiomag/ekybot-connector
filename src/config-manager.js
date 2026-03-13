@@ -10,12 +10,22 @@ class OpenClawConfigManager {
     this.backupPath = `${this.configPath}.backup`;
   }
 
+  getDefaultConfigCandidates() {
+    return [
+      path.join(os.homedir(), '.openclaw', 'openclaw.json'),
+      path.join(os.homedir(), '.openclaw', 'config.json'),
+    ];
+  }
+
   getConfigPath() {
     const envPath = process.env.OPENCLAW_CONFIG_PATH;
     if (envPath) {
       return envPath.replace('~', os.homedir());
     }
-    return path.join(os.homedir(), '.openclaw', 'config.json');
+
+    const candidates = this.getDefaultConfigCandidates();
+    const detected = candidates.find((candidate) => fs.existsSync(candidate));
+    return detected || candidates[0];
   }
 
   getManagedFragmentPath() {
