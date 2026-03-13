@@ -31,8 +31,8 @@ async function syncCompanionInventory() {
     machineApiKey: state.machineApiKey,
   });
 
-  const heartbeat = inventoryCollector.toHeartbeatPayload();
-  const inventory = inventoryCollector.toMachineInventoryPayload();
+  const heartbeat = inventoryCollector.toHeartbeatPayload(state.machineId);
+  const inventory = inventoryCollector.toMachineInventoryPayload(state.machineId);
 
   const heartbeatResult = await apiClient.sendHeartbeat(state.machineId, heartbeat);
   const inventoryResult = await apiClient.uploadInventory(state.machineId, inventory);

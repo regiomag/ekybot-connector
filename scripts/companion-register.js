@@ -40,10 +40,11 @@ async function registerCompanion() {
     },
     {
       type: 'password',
-      name: 'userBearerToken',
-      message: 'Temporary user bearer token for registration:',
-      default: process.env.EKYBOT_USER_BEARER_TOKEN || undefined,
-      validate: (input) => (input && input.length > 20 ? true : 'A bearer token is required for now'),
+      name: 'registrationToken',
+      message: 'Companion registration token:',
+      default: process.env.EKYBOT_COMPANION_REGISTRATION_TOKEN || undefined,
+      validate: (input) =>
+        input && input.startsWith('ekrt_') ? true : 'A registration token is required',
     },
     {
       type: 'input',
@@ -61,19 +62,17 @@ async function registerCompanion() {
 
   const apiClient = new EkybotCompanionApiClient({
     baseUrl: answers.baseUrl,
-    userBearerToken: answers.userBearerToken,
+    registrationToken: answers.registrationToken,
   });
 
   const registration = {
-    version: '2026-03-13',
-    name: answers.machineName,
+    protocolVersion: '2026-03-13',
+    machineId: existingState?.machineId || `machine-${os.hostname()}`,
+    machineName: answers.machineName,
     platform: inventoryCollector.platform,
-    metadata: {
-      hostname: os.hostname(),
-      configPath: configManager.configPath,
-      managedFragmentPath: configManager.getManagedFragmentPath(),
-      mode: 'inventory-only',
-    },
+    companionVersion: '0.1.0',
+    openclawVersion: 'unknown',
+    publicKey: undefined,
   };
 
   const result = await apiClient.registerMachine(registration);
@@ -84,7 +83,7 @@ async function registerCompanion() {
     baseUrl: answers.baseUrl,
     machineId: machine.id,
     machineApiKey: result.apiKey,
-    machineName: machine.name,
+    machineName: machine.machineName,
   });
 
   console.log(chalk.green('\n✅ Companion machine registered'));

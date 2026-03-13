@@ -11,6 +11,8 @@ class EkybotCompanionApiClient {
     this.userAgent = options.userAgent || 'ekybot-companion/0.1.0';
     this.userBearerToken = options.userBearerToken || process.env.EKYBOT_USER_BEARER_TOKEN || null;
     this.machineApiKey = options.machineApiKey || process.env.EKYBOT_COMPANION_API_KEY || null;
+    this.registrationToken =
+      options.registrationToken || process.env.EKYBOT_COMPANION_REGISTRATION_TOKEN || null;
   }
 
   buildHeaders(extraHeaders = {}) {
@@ -22,6 +24,8 @@ class EkybotCompanionApiClient {
 
     if (this.machineApiKey) {
       headers['x-companion-api-key'] = this.machineApiKey;
+    } else if (this.registrationToken) {
+      headers['x-companion-registration-token'] = this.registrationToken;
     } else if (this.userBearerToken) {
       headers.Authorization = `Bearer ${this.userBearerToken}`;
     }

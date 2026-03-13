@@ -64,47 +64,44 @@ class OpenClawInventoryCollector {
     };
   }
 
-  toMachineInventoryPayload() {
+  toMachineInventoryPayload(machineId) {
     const inventory = this.collect();
 
     return {
-      version: inventory.version,
+      protocolVersion: inventory.version,
+      machineId,
       configHash: inventory.openClaw.configHash,
-      openClawVersion: inventory.openClaw.mode || null,
-      configPath: inventory.openClaw.configPath,
-      managedFragmentPath: inventory.openClaw.managedFragmentPath,
-      metadata: {
-        includes: inventory.openClaw.includes,
-        hasManagedFragment: inventory.openClaw.hasManagedFragment,
-        validation: inventory.validation,
-        system: inventory.system,
-      },
+      rootConfigPath: inventory.openClaw.configPath,
+      managedFragmentPaths: inventory.openClaw.managedFragmentPath
+        ? [inventory.openClaw.managedFragmentPath, ...inventory.openClaw.includes]
+        : inventory.openClaw.includes,
+      warnings: [],
+      scannedAt: inventory.collectedAt,
       agents: inventory.agents.map((agent) => ({
-        externalId: agent.externalId,
+        openclawAgentId: agent.externalId,
         name: agent.name,
         ownership: agent.ownership,
         model: agent.model,
         workspacePath: agent.workspacePath,
-        channelKey: agent.channelKey,
-        projectKey: agent.projectKey,
-        metadata: agent.metadata,
+        bindings: Array.isArray(agent.metadata?.bindings) ? agent.metadata.bindings : [],
+        fingerprint: null,
+        warnings: [],
       })),
     };
   }
 
-  toHeartbeatPayload() {
+  toHeartbeatPayload(machineId) {
     const inventory = this.collect();
 
     return {
-      version: inventory.version,
+      protocolVersion: inventory.version,
+      machineId,
       status: inventory.validation.configExists && inventory.validation.configValid ? 'online' : 'error',
+      lastSeenAt: inventory.collectedAt,
+      openclawReachable: inventory.validation.configExists && inventory.validation.configValid,
+      plotterHealthy: null,
+      pendingOperationCount: 0,
       activeConfigHash: inventory.openClaw.configHash,
-      metadata: {
-        agentCount: inventory.agents.length,
-        configPath: inventory.openClaw.configPath,
-        managedFragmentPath: inventory.openClaw.managedFragmentPath,
-        validation: inventory.validation,
-      },
     };
   }
 }
