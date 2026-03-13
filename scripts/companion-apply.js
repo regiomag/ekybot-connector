@@ -35,6 +35,9 @@ async function applyCompanionOperations() {
       `✓ Apply completed (${result.appliedOperationIds.length}/${result.pendingOperations.length} operations applied)`
     )
   );
+  if (result.failedOperationCount > 0) {
+    console.log(chalk.yellow(`! ${result.failedOperationCount} operations need attention`));
+  }
   console.log(
     chalk.gray(
       `Managed agents in desired state: ${(result.desiredState?.agents || []).length}`

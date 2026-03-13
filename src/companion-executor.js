@@ -14,6 +14,11 @@ class EkybotCompanionExecutor {
   }
 
   async applyDesiredState(machineId) {
+    const applyStartedAt = new Date().toISOString();
+    this.stateStore.merge({
+      lastApplyStartedAt: applyStartedAt,
+    });
+
     const response = await this.apiClient.fetchDesiredState(machineId);
     const desiredState = response?.desiredState;
     const pendingOperations = response?.pendingOperations || [];
@@ -41,10 +46,30 @@ class EkybotCompanionExecutor {
       }
     }
 
+    const applyCompletedAt = new Date().toISOString();
+    const failedOperationCount = pendingOperations.length - applied.length;
+    const nextDriftDetected =
+      failedOperationCount > 0 ||
+      pendingOperations.some((operation) => !applied.includes(operation.id));
+
+    this.stateStore.merge({
+      lastApplyCompletedAt: applyCompletedAt,
+      lastDesiredSyncAt: applyCompletedAt,
+      driftDetected: nextDriftDetected,
+      driftReason: nextDriftDetected
+        ? failedOperationCount > 0
+          ? 'Some pending operations failed during local apply'
+          : 'Pending operations remain after local apply'
+        : null,
+    });
+
     return {
       desiredState,
       pendingOperations,
       appliedOperationIds: applied,
+      failedOperationCount,
+      applyStartedAt,
+      applyCompletedAt,
     };
   }
 

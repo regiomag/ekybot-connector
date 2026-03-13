@@ -45,6 +45,7 @@
     "companion:register": "node scripts/companion-register.js",
     "companion:sync": "node scripts/companion-sync.js",
     "companion:apply": "node scripts/companion-apply.js",
+    "companion:reconcile": "node scripts/companion-reconcile.js",
     "setup": "node scripts/setup.js",
     "preview": "node scripts/preview.js",
     "enable-telemetry": "node scripts/enable-telemetry.js",

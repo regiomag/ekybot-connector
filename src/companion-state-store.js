@@ -38,6 +38,15 @@ class EkybotCompanionStateStore {
     );
   }
 
+  merge(patch) {
+    const current = this.load() || {};
+    const nextPatch = typeof patch === 'function' ? patch(current) : patch;
+    this.save({
+      ...current,
+      ...nextPatch,
+    });
+  }
+
   clear() {
     if (fs.existsSync(this.filePath)) {
       fs.unlinkSync(this.filePath);
