@@ -108,6 +108,7 @@ class EkybotCompanionExecutor {
   async applyOperation(machineId, operation, desiredState) {
     const appliesManagedState = new Set([
       'bootstrap_include',
+      'import_agent',
       'create_agent',
       'update_agent_model',
       'update_agent_bindings',
