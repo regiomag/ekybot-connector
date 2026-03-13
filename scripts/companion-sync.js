@@ -8,6 +8,7 @@ const {
   OpenClawConfigManager,
   OpenClawInventoryCollector,
 } = require('../src');
+const { buildCompanionRuntimeState } = require('../src/companion-runtime-state');
 
 async function syncCompanionInventory() {
   console.log(chalk.blue.bold('🔄 Ekybot Companion Sync'));
@@ -35,18 +36,18 @@ async function syncCompanionInventory() {
   const refreshedState = stateStore.load() || state;
   const heartbeat = inventoryCollector.toHeartbeatPayload(state.machineId);
   const inventory = inventoryCollector.toMachineInventoryPayload(state.machineId);
-  heartbeat.runtimeState = {
-    lastDesiredSyncAt: refreshedState.lastDesiredSyncAt || null,
+  heartbeat.runtimeState = buildCompanionRuntimeState({
+    lastDesiredSyncAt: refreshedState.lastDesiredSyncAt,
     lastInventoryUploadedAt: syncStartedAt,
-    lastApplyStartedAt: refreshedState.lastApplyStartedAt || null,
-    lastApplyCompletedAt: refreshedState.lastApplyCompletedAt || null,
-    lastReconciledAt: refreshedState.lastReconciledAt || null,
-    lastAppliedDesiredConfigVersion: refreshedState.lastAppliedDesiredConfigVersion ?? null,
-    lastAppliedManagedFragmentPath: refreshedState.lastAppliedManagedFragmentPath || null,
-    lastAppliedManagedFragmentHash: refreshedState.lastAppliedManagedFragmentHash || null,
+    lastApplyStartedAt: refreshedState.lastApplyStartedAt,
+    lastApplyCompletedAt: refreshedState.lastApplyCompletedAt,
+    lastReconciledAt: refreshedState.lastReconciledAt,
+    lastAppliedDesiredConfigVersion: refreshedState.lastAppliedDesiredConfigVersion,
+    lastAppliedManagedFragmentPath: refreshedState.lastAppliedManagedFragmentPath,
+    lastAppliedManagedFragmentHash: refreshedState.lastAppliedManagedFragmentHash,
     driftDetected: refreshedState.driftDetected ?? false,
-    driftReason: refreshedState.driftReason || null,
-  };
+    driftReason: refreshedState.driftReason,
+  });
 
   const heartbeatResult = await apiClient.sendHeartbeat(state.machineId, heartbeat);
   const inventoryResult = await apiClient.uploadInventory(state.machineId, inventory);

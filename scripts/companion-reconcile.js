@@ -9,6 +9,7 @@ const {
   OpenClawConfigManager,
   OpenClawInventoryCollector,
 } = require('../src');
+const { buildCompanionRuntimeState } = require('../src/companion-runtime-state');
 
 async function reconcileCompanionState() {
   console.log(chalk.blue.bold('🔁 Ekybot Companion Reconcile'));
@@ -40,7 +41,7 @@ async function reconcileCompanionState() {
   const buildHeartbeat = (runtimeState, pendingOperationCount) => {
     const heartbeat = inventoryCollector.toHeartbeatPayload(state.machineId);
     heartbeat.pendingOperationCount = pendingOperationCount;
-    heartbeat.runtimeState = runtimeState;
+    heartbeat.runtimeState = buildCompanionRuntimeState(runtimeState);
     return heartbeat;
   };
 
@@ -56,16 +57,16 @@ async function reconcileCompanionState() {
     state.machineId,
     buildHeartbeat(
       {
-        lastDesiredSyncAt: runtimeBefore.lastDesiredSyncAt || null,
-        lastInventoryUploadedAt: runtimeBefore.lastInventoryUploadedAt || null,
-        lastApplyStartedAt: runtimeBefore.lastApplyStartedAt || null,
-        lastApplyCompletedAt: runtimeBefore.lastApplyCompletedAt || null,
-        lastReconciledAt: runtimeBefore.lastReconciledAt || null,
-        lastAppliedDesiredConfigVersion: runtimeBefore.lastAppliedDesiredConfigVersion ?? null,
-        lastAppliedManagedFragmentPath: runtimeBefore.lastAppliedManagedFragmentPath || null,
-        lastAppliedManagedFragmentHash: runtimeBefore.lastAppliedManagedFragmentHash || null,
+        lastDesiredSyncAt: runtimeBefore.lastDesiredSyncAt,
+        lastInventoryUploadedAt: runtimeBefore.lastInventoryUploadedAt,
+        lastApplyStartedAt: runtimeBefore.lastApplyStartedAt,
+        lastApplyCompletedAt: runtimeBefore.lastApplyCompletedAt,
+        lastReconciledAt: runtimeBefore.lastReconciledAt,
+        lastAppliedDesiredConfigVersion: runtimeBefore.lastAppliedDesiredConfigVersion,
+        lastAppliedManagedFragmentPath: runtimeBefore.lastAppliedManagedFragmentPath,
+        lastAppliedManagedFragmentHash: runtimeBefore.lastAppliedManagedFragmentHash,
         driftDetected: runtimeBefore.driftDetected ?? false,
-        driftReason: runtimeBefore.driftReason || null,
+        driftReason: runtimeBefore.driftReason,
       },
       (initialDesiredState.pendingOperations || []).length
     )
@@ -108,16 +109,16 @@ async function reconcileCompanionState() {
     state.machineId,
     buildHeartbeat(
       {
-        lastDesiredSyncAt: finalState.lastDesiredSyncAt || null,
-        lastInventoryUploadedAt: finalState.lastInventoryUploadedAt || null,
-        lastApplyStartedAt: finalState.lastApplyStartedAt || null,
-        lastApplyCompletedAt: finalState.lastApplyCompletedAt || null,
-        lastReconciledAt: finalState.lastReconciledAt || null,
-        lastAppliedDesiredConfigVersion: finalState.lastAppliedDesiredConfigVersion ?? null,
-        lastAppliedManagedFragmentPath: finalState.lastAppliedManagedFragmentPath || null,
-        lastAppliedManagedFragmentHash: finalState.lastAppliedManagedFragmentHash || null,
+        lastDesiredSyncAt: finalState.lastDesiredSyncAt,
+        lastInventoryUploadedAt: finalState.lastInventoryUploadedAt,
+        lastApplyStartedAt: finalState.lastApplyStartedAt,
+        lastApplyCompletedAt: finalState.lastApplyCompletedAt,
+        lastReconciledAt: finalState.lastReconciledAt,
+        lastAppliedDesiredConfigVersion: finalState.lastAppliedDesiredConfigVersion,
+        lastAppliedManagedFragmentPath: finalState.lastAppliedManagedFragmentPath,
+        lastAppliedManagedFragmentHash: finalState.lastAppliedManagedFragmentHash,
         driftDetected: finalState.driftDetected ?? false,
-        driftReason: finalState.driftReason || null,
+        driftReason: finalState.driftReason,
       },
       finalPendingOperationCount
     )
