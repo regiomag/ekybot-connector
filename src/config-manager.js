@@ -17,6 +17,15 @@ class OpenClawConfigManager {
     return path.join(os.homedir(), '.openclaw', 'config.json');
   }
 
+  getManagedFragmentPath() {
+    const envPath = process.env.EKYBOT_MANAGED_FRAGMENT_PATH;
+    if (envPath) {
+      return envPath.replace('~', os.homedir());
+    }
+
+    return path.join(os.homedir(), '.openclaw', 'managed', 'ekybot.agents.json');
+  }
+
   // Read current OpenClaw configuration
   readConfig() {
     try {
@@ -77,6 +86,79 @@ class OpenClawConfigManager {
       console.error(chalk.red(`Failed to restore backup: ${error.message}`));
       return false;
     }
+  }
+
+  getIncludePaths() {
+    try {
+      const config = this.readConfig();
+      const includes = [];
+
+      if (Array.isArray(config.$include)) {
+        includes.push(...config.$include);
+      }
+
+      if (Array.isArray(config.include)) {
+        includes.push(...config.include);
+      }
+
+      if (typeof config.$include === 'string') {
+        includes.push(config.$include);
+      }
+
+      if (typeof config.include === 'string') {
+        includes.push(config.include);
+      }
+
+      return includes;
+    } catch (error) {
+      return [];
+    }
+  }
+
+  listAgents() {
+    try {
+      const config = this.readConfig();
+      const sourceAgents = Array.isArray(config?.agents)
+        ? config.agents
+        : Array.isArray(config?.agents?.list)
+          ? config.agents.list
+          : [];
+
+      return sourceAgents.map((agent, index) => ({
+        externalId: agent.id || agent.key || agent.name || `agent-${index + 1}`,
+        name: agent.name || agent.id || agent.key || `Agent ${index + 1}`,
+        ownership: this.inferAgentOwnership(agent),
+        model: agent.model || agent.engine || agent.provider_model || null,
+        workspacePath: agent.workspace || agent.workspacePath || agent.path || null,
+        channelKey: agent.channelKey || agent.channel || null,
+        projectKey: agent.projectKey || agent.project || null,
+        metadata: {
+          provider: agent.provider || null,
+          tools: Array.isArray(agent.tools) ? agent.tools : [],
+          rawId: agent.id || null,
+          bindings: Array.isArray(agent.bindings) ? agent.bindings : [],
+        },
+      }));
+    } catch (error) {
+      return [];
+    }
+  }
+
+  inferAgentOwnership(agent) {
+    const managedFragmentPath = this.getManagedFragmentPath();
+    const includesManagedFragment = this.getIncludePaths().some((includePath) =>
+      includePath.includes(path.basename(managedFragmentPath))
+    );
+
+    if (agent?.metadata?.ekybotManaged || agent?.ekybotManaged) {
+      return 'managed';
+    }
+
+    if (includesManagedFragment && agent?.workspace && String(agent.workspace).includes('ekybot')) {
+      return 'adoptable';
+    }
+
+    return 'external';
   }
 
   // Add Ekybot integration to OpenClaw config
@@ -174,6 +256,7 @@ class OpenClawConfigManager {
       configExists: fs.existsSync(this.configPath),
       configValid: false,
       agentsDir: false,
+      managedFragmentExists: fs.existsSync(this.getManagedFragmentPath()),
     };
 
     // Check config validity

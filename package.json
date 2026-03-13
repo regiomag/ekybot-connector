@@ -42,6 +42,8 @@
     "stop": "node scripts/stop.js",
     "restart": "npm run stop && npm run start",
     "register": "node scripts/register.js",
+    "companion:register": "node scripts/companion-register.js",
+    "companion:sync": "node scripts/companion-sync.js",
     "setup": "node scripts/setup.js",
     "preview": "node scripts/preview.js",
     "enable-telemetry": "node scripts/enable-telemetry.js",

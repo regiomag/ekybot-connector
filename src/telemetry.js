@@ -1,9 +1,16 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const WebSocket = require('ws');
 const chalk = require('chalk');
 const EkybotApiClient = require('./api-client');
+
+let WebSocket = null;
+
+try {
+  WebSocket = require('ws');
+} catch (error) {
+  WebSocket = null;
+}
 
 class TelemetryCollector {
   constructor(apiKey, workspaceId, options = {}) {
@@ -87,6 +94,11 @@ class TelemetryCollector {
 
   // Initialize WebSocket connection for real-time streaming
   initializeWebSocket() {
+    if (!WebSocket) {
+      console.error(chalk.red('WebSocket dependency is not installed'));
+      return;
+    }
+
     try {
       this.ws = new WebSocket(this.wsUrl, {
         headers: {

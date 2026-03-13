@@ -15,6 +15,9 @@ describe('Ekybot Connector Tests', () => {
         'CHANGELOG.md',
         'src/index.js',
         'src/api-client.js',
+        'src/companion-api-client.js',
+        'src/companion-inventory.js',
+        'src/companion-state-store.js',
         'src/config-manager.js',
         'src/telemetry.js',
         'src/auth.js',
@@ -53,6 +56,18 @@ describe('Ekybot Connector Tests', () => {
 
       assert.ok(connector.EkybotApiClient, 'Missing EkybotApiClient export');
       assert.ok(
+        connector.EkybotCompanionApiClient,
+        'Missing EkybotCompanionApiClient export'
+      );
+      assert.ok(
+        connector.EkybotCompanionStateStore,
+        'Missing EkybotCompanionStateStore export'
+      );
+      assert.ok(
+        connector.OpenClawInventoryCollector,
+        'Missing OpenClawInventoryCollector export'
+      );
+      assert.ok(
         connector.OpenClawConfigManager,
         'Missing OpenClawConfigManager export'
       );
@@ -75,6 +90,14 @@ describe('Ekybot Connector Tests', () => {
 
       assert.doesNotThrow(() => {
         new OpenClawConfigManager();
+      });
+    });
+
+    it('should create companion client instance', () => {
+      const { EkybotCompanionApiClient } = require('../src/index.js');
+
+      assert.doesNotThrow(() => {
+        new EkybotCompanionApiClient({ baseUrl: 'https://www.ekybot.com' });
       });
     });
   });
