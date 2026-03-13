@@ -23,37 +23,60 @@ async function registerCompanion() {
     console.log(chalk.gray(`Machine ID: ${existingState.machineId}`));
   }
 
-  const answers = await inquirer.prompt([
-    {
-      type: 'input',
-      name: 'baseUrl',
-      message: 'Ekybot app URL:',
-      default: process.env.EKYBOT_APP_URL || existingState?.baseUrl || 'https://www.ekybot.com',
-      validate: (input) => {
-        try {
-          new URL(input);
-          return true;
-        } catch (error) {
-          return 'Please enter a valid URL';
-        }
+  const defaults = {
+    baseUrl: process.env.EKYBOT_APP_URL || existingState?.baseUrl || 'https://www.ekybot.com',
+    registrationToken: process.env.EKYBOT_COMPANION_REGISTRATION_TOKEN || '',
+    machineName: process.env.EKYBOT_MACHINE_NAME || os.hostname(),
+  };
+
+  let answers = defaults;
+
+  const hasNonInteractiveInputs =
+    Boolean(defaults.baseUrl) &&
+    Boolean(defaults.registrationToken) &&
+    defaults.registrationToken.startsWith('ekrt_') &&
+    Boolean(defaults.machineName);
+
+  if (!hasNonInteractiveInputs) {
+    answers = await inquirer.prompt([
+      {
+        type: 'input',
+        name: 'baseUrl',
+        message: 'Ekybot app URL:',
+        default: defaults.baseUrl,
+        validate: (input) => {
+          try {
+            new URL(input);
+            return true;
+          } catch (error) {
+            return 'Please enter a valid URL';
+          }
+        },
       },
-    },
-    {
-      type: 'password',
-      name: 'registrationToken',
-      message: 'Companion registration token:',
-      default: process.env.EKYBOT_COMPANION_REGISTRATION_TOKEN || undefined,
-      validate: (input) =>
-        input && input.startsWith('ekrt_') ? true : 'A registration token is required',
-    },
-    {
-      type: 'input',
-      name: 'machineName',
-      message: 'Machine name:',
-      default: process.env.EKYBOT_MACHINE_NAME || os.hostname(),
-      validate: (input) => (input && input.trim().length >= 3 ? true : 'Enter a machine name'),
-    },
-  ]);
+      {
+        type: 'password',
+        name: 'registrationToken',
+        message: 'Companion registration token:',
+        default: defaults.registrationToken || undefined,
+        validate: (input) =>
+          input && input.startsWith('ekrt_') ? true : 'A registration token is required',
+      },
+      {
+        type: 'input',
+        name: 'machineName',
+        message: 'Machine name:',
+        default: defaults.machineName,
+        validate: (input) => (input && input.trim().length >= 3 ? true : 'Enter a machine name'),
+      },
+    ]);
+  } else {
+    try {
+      new URL(defaults.baseUrl);
+    } catch (error) {
+      throw new Error('EKYBOT_APP_URL must be a valid URL');
+    }
+    console.log(chalk.gray('Using non-interactive environment configuration.'));
+  }
 
   const configManager = new OpenClawConfigManager();
   const inventoryCollector = new OpenClawInventoryCollector(configManager, {
