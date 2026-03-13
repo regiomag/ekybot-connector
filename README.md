@@ -18,6 +18,10 @@ The hosted service provides:
 - Team collaboration features
 - Managed infrastructure & support
 
+For the new Companion-based OpenClaw control plane, see:
+
+- [COMPANION_TESTING_GUIDE.md](/Users/michael/web/ekybot-connector/COMPANION_TESTING_GUIDE.md)
+
 ---
 
 ## Self-Host Installation (Advanced)

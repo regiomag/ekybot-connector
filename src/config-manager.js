@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -15,6 +16,19 @@ class OpenClawConfigManager {
       return envPath.replace('~', os.homedir());
     }
     return path.join(os.homedir(), '.openclaw', 'config.json');
+  }
+
+  getManagedFragmentPath() {
+    const envPath = process.env.EKYBOT_MANAGED_FRAGMENT_PATH;
+    if (envPath) {
+      return envPath.replace('~', os.homedir());
+    }
+
+    return path.join(os.homedir(), '.openclaw', 'managed', 'ekybot.agents.json5');
+  }
+
+  resolveHomePath(filePath) {
+    return filePath.replace(/^~(?=$|\/|\\)/, os.homedir());
   }
 
   // Read current OpenClaw configuration
@@ -50,6 +64,15 @@ class OpenClawConfigManager {
     }
   }
 
+  writeFileAtomic(targetPath, content) {
+    const resolvedPath = this.resolveHomePath(targetPath);
+    fs.mkdirSync(path.dirname(resolvedPath), { recursive: true });
+    const tmpPath = `${resolvedPath}.tmp.${process.pid}`;
+    fs.writeFileSync(tmpPath, content, 'utf8');
+    fs.renameSync(tmpPath, resolvedPath);
+    return resolvedPath;
+  }
+
   // Create backup of current configuration
   createBackup() {
     try {
@@ -77,6 +100,137 @@ class OpenClawConfigManager {
       console.error(chalk.red(`Failed to restore backup: ${error.message}`));
       return false;
     }
+  }
+
+  getIncludePaths() {
+    try {
+      const config = this.readConfig();
+      const includes = [];
+
+      if (Array.isArray(config.$include)) {
+        includes.push(...config.$include);
+      }
+
+      if (Array.isArray(config.include)) {
+        includes.push(...config.include);
+      }
+
+      if (typeof config.$include === 'string') {
+        includes.push(config.$include);
+      }
+
+      if (typeof config.include === 'string') {
+        includes.push(config.include);
+      }
+
+      return includes;
+    } catch (error) {
+      return [];
+    }
+  }
+
+  ensureManagedInclude(managedFragmentPath = this.getManagedFragmentPath()) {
+    const config = this.readConfig();
+    const includePath = managedFragmentPath;
+    const currentIncludes = this.getIncludePaths();
+    const alreadyIncluded = currentIncludes.includes(includePath);
+
+    if (alreadyIncluded) {
+      return { updated: false, includePath, configPath: this.configPath };
+    }
+
+    const nextIncludes = [...currentIncludes, includePath];
+    config.$include = nextIncludes;
+
+    if ('include' in config) {
+      delete config.include;
+    }
+
+    this.writeConfig(config);
+    return { updated: true, includePath, configPath: this.configPath };
+  }
+
+  writeManagedFragment(desiredState) {
+    const fragmentPath = this.resolveHomePath(
+      desiredState.managedFragmentPath || this.getManagedFragmentPath()
+    );
+
+    const fragment = {
+      generatedBy: 'ekybot-companion',
+      generatedAt: new Date().toISOString(),
+      desiredConfigVersion: desiredState.desiredConfigVersion || 0,
+      agents: {
+        list: (desiredState.agents || []).map((agent) => ({
+          id: agent.openclawAgentId,
+          name: agent.name,
+          provider: agent.provider || null,
+          model: agent.model,
+          workspace: agent.workspacePath || null,
+          channelKey: agent.channelKey || null,
+          projectId: agent.projectId || null,
+          metadata: {
+            ekybotManaged: true,
+            managedBy: 'ekybot-companion',
+            templateVersion: agent.templateVersion || null,
+          },
+        })),
+      },
+      bindings: desiredState.bindings || [],
+    };
+
+    const content = `${JSON.stringify(fragment, null, 2)}\n`;
+    this.writeFileAtomic(fragmentPath, content);
+
+    return {
+      fragmentPath,
+      fragmentHash: crypto.createHash('sha256').update(content).digest('hex'),
+    };
+  }
+
+  listAgents() {
+    try {
+      const config = this.readConfig();
+      const sourceAgents = Array.isArray(config?.agents)
+        ? config.agents
+        : Array.isArray(config?.agents?.list)
+          ? config.agents.list
+          : [];
+
+      return sourceAgents.map((agent, index) => ({
+        externalId: agent.id || agent.key || agent.name || `agent-${index + 1}`,
+        name: agent.name || agent.id || agent.key || `Agent ${index + 1}`,
+        ownership: this.inferAgentOwnership(agent),
+        model: agent.model || agent.engine || agent.provider_model || null,
+        workspacePath: agent.workspace || agent.workspacePath || agent.path || null,
+        channelKey: agent.channelKey || agent.channel || null,
+        projectKey: agent.projectKey || agent.project || null,
+        metadata: {
+          provider: agent.provider || null,
+          tools: Array.isArray(agent.tools) ? agent.tools : [],
+          rawId: agent.id || null,
+          bindings: Array.isArray(agent.bindings) ? agent.bindings : [],
+        },
+      }));
+    } catch (error) {
+      return [];
+    }
+  }
+
+  inferAgentOwnership(agent) {
+    const managedFragmentPath = this.getManagedFragmentPath();
+    const includesManagedFragment = this.getIncludePaths().some((includePath) =>
+      includePath.includes(path.basename(managedFragmentPath))
+    );
+
+    if (agent?.metadata?.ekybotManaged || agent?.ekybotManaged) {
+      return 'managed';
+    }
+
+    if (includesManagedFragment && agent?.workspace && String(agent.workspace).includes('ekybot')) {
+      return 'adoptable';
+    }
+
+    return 'external';
   }
 
   // Add Ekybot integration to OpenClaw config
@@ -174,6 +328,7 @@ class OpenClawConfigManager {
       configExists: fs.existsSync(this.configPath),
       configValid: false,
       agentsDir: false,
+      managedFragmentExists: fs.existsSync(this.getManagedFragmentPath()),
     };
 
     // Check config validity

@@ -1,5 +1,8 @@
-const fetch = require('node-fetch');
 const chalk = require('chalk');
+
+const fetchImpl = global.fetch
+  ? (...args) => global.fetch(...args)
+  : (...args) => require('node-fetch')(...args);
 
 class EkybotApiClient {
   constructor(apiKey, apiUrl = 'https://api.ekybot.com') {
@@ -25,7 +28,7 @@ class EkybotApiClient {
     }
 
     try {
-      const response = await fetch(url, options);
+      const response = await fetchImpl(url, options);
 
       if (!response.ok) {
         const errorText = await response.text();
