@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-require('dotenv').config();
+require('../src/load-env')();
 const chalk = require('chalk');
 const {
   EkybotCompanionApiClient,
