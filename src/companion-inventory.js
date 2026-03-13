@@ -2,6 +2,12 @@ const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 
+function compactObject(value) {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entryValue]) => entryValue !== null && entryValue !== undefined)
+  );
+}
+
 class OpenClawInventoryCollector {
   constructor(configManager, options = {}) {
     this.configManager = configManager;
@@ -70,25 +76,26 @@ class OpenClawInventoryCollector {
     return {
       protocolVersion: inventory.version,
       machineId,
-      configHash: inventory.openClaw.configHash,
-      rootConfigPath: inventory.openClaw.configPath,
+      ...(inventory.openClaw.configHash ? { configHash: inventory.openClaw.configHash } : {}),
+      ...(inventory.openClaw.configPath ? { rootConfigPath: inventory.openClaw.configPath } : {}),
       managedFragmentPaths: inventory.openClaw.managedFragmentPath
         ? [inventory.openClaw.managedFragmentPath, ...inventory.openClaw.includes]
         : inventory.openClaw.includes,
       warnings: [],
       scannedAt: inventory.collectedAt,
-      agents: inventory.agents.map((agent) => ({
-        openclawAgentId: agent.externalId,
-        name: agent.name,
-        ownership: agent.ownership,
-        model: agent.model,
-        workspacePath: agent.workspacePath,
-        channelKey: agent.channelKey,
-        projectHint: agent.projectKey,
-        bindings: Array.isArray(agent.metadata?.bindings) ? agent.metadata.bindings : [],
-        fingerprint: null,
-        warnings: [],
-      })),
+      agents: inventory.agents.map((agent) =>
+        compactObject({
+          openclawAgentId: agent.externalId,
+          name: agent.name,
+          ownership: agent.ownership,
+          model: agent.model,
+          workspacePath: agent.workspacePath,
+          channelKey: agent.channelKey,
+          projectHint: agent.projectKey,
+          bindings: Array.isArray(agent.metadata?.bindings) ? agent.metadata.bindings : [],
+          warnings: [],
+        })
+      ),
     };
   }
 
@@ -101,7 +108,7 @@ class OpenClawInventoryCollector {
       lastSeenAt: inventory.collectedAt,
       openclawReachable: inventory.validation.configExists && inventory.validation.configValid,
       pendingOperationCount: 0,
-      activeConfigHash: inventory.openClaw.configHash,
+      ...(inventory.openClaw.configHash ? { activeConfigHash: inventory.openClaw.configHash } : {}),
     };
 
     if (typeof inventory.plotterHealthy === 'boolean') {
