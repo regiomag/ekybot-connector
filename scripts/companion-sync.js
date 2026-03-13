@@ -49,9 +49,25 @@ async function syncCompanionInventory() {
     driftReason: refreshedState.driftReason,
   });
 
-  const heartbeatResult = await apiClient.sendHeartbeat(state.machineId, heartbeat);
-  const inventoryResult = await apiClient.uploadInventory(state.machineId, inventory);
-  const desiredState = await apiClient.fetchDesiredState(state.machineId);
+  let heartbeatResult;
+  let inventoryResult;
+  let desiredState;
+
+  try {
+    heartbeatResult = await apiClient.sendHeartbeat(state.machineId, heartbeat);
+  } catch (error) {
+    console.error(chalk.red(`Heartbeat payload: ${JSON.stringify(heartbeat, null, 2)}`));
+    throw error;
+  }
+
+  try {
+    inventoryResult = await apiClient.uploadInventory(state.machineId, inventory);
+  } catch (error) {
+    console.error(chalk.red(`Inventory payload: ${JSON.stringify(inventory, null, 2)}`));
+    throw error;
+  }
+
+  desiredState = await apiClient.fetchDesiredState(state.machineId);
 
   const syncCompletedAt = new Date().toISOString();
   stateStore.save({

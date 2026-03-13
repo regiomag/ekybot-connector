@@ -46,7 +46,8 @@ class EkybotCompanionApiClient {
 
     if (!response.ok) {
       const message = payload?.error || payload?.message || `${response.status} ${response.statusText}`;
-      throw new Error(`Companion API request failed: ${message}`);
+      const details = payload?.details ? ` | details: ${JSON.stringify(payload.details)}` : '';
+      throw new Error(`Companion API request failed on ${method} ${pathname}: ${message}${details}`);
     }
 
     return payload;
