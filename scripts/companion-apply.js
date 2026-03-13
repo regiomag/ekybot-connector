@@ -35,6 +35,9 @@ async function applyCompanionOperations() {
       `✓ Apply completed (${result.appliedOperationIds.length}/${result.pendingOperations.length} operations applied)`
     )
   );
+  if (result.implicitSyncApplied) {
+    console.log(chalk.green('✓ Desired state changes were synced to the managed fragment'));
+  }
   if (result.failedOperationCount > 0) {
     console.log(chalk.yellow(`! ${result.failedOperationCount} operations need attention`));
   }

@@ -128,6 +128,9 @@ async function reconcileCompanionState() {
       `✓ Reconcile completed (${applyResult.appliedOperationIds.length}/${applyResult.pendingOperations.length} operations applied)`
     )
   );
+  if (applyResult.implicitSyncApplied) {
+    console.log(chalk.green('✓ Desired state changes were synced to the managed fragment'));
+  }
   console.log(chalk.gray(`Managed agents written: ${(applyResult.desiredState?.agents || []).length}`));
   console.log(chalk.gray(`Pending operations remaining: ${finalPendingOperationCount}`));
   console.log(

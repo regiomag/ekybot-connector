@@ -27,7 +27,38 @@ class EkybotCompanionExecutor {
       throw new Error('Missing desired state payload');
     }
 
+    const persistedState = this.stateStore.load() || {};
+    const needsImplicitManagedFragmentSync =
+      desiredState.desiredConfigVersion !==
+      (persistedState.lastAppliedDesiredConfigVersion ?? null);
+
     const applied = [];
+    let implicitSyncApplied = false;
+
+    if (needsImplicitManagedFragmentSync && pendingOperations.length === 0) {
+      const includeInfo = this.configManager.ensureManagedInclude(
+        desiredState.managedFragmentPath
+      );
+      const fragmentInfo = this.configManager.writeManagedFragment(desiredState);
+
+      this.stateStore.merge({
+        lastAppliedDesiredConfigVersion: desiredState.desiredConfigVersion,
+        lastAppliedManagedFragmentPath: fragmentInfo.fragmentPath,
+        lastAppliedManagedFragmentHash: fragmentInfo.fragmentHash,
+      });
+
+      this.logger.log(
+        chalk.green(
+          `✓ desired state synced (${desiredState.agents.length} managed agents written)`
+        )
+      );
+
+      implicitSyncApplied = true;
+
+      if (includeInfo.updated) {
+        this.logger.log(chalk.green('✓ managed include bootstrapped'));
+      }
+    }
 
     for (const operation of pendingOperations) {
       try {
@@ -70,6 +101,7 @@ class EkybotCompanionExecutor {
       failedOperationCount,
       applyStartedAt,
       applyCompletedAt,
+      implicitSyncApplied,
     };
   }
 
