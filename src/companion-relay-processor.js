@@ -17,6 +17,7 @@ class EkybotCompanionRelayProcessor {
     const source = relay.source || {};
     const target = relay.target || {};
     const message = relay.message || {};
+    const type = relay.type || 'agent_notification';
     const sourceAgentName = source.agentName || notification.fromAgentName || source.agentId || 'Un autre agent';
     const targetAgentName = target.name || target.agentId || notification?.toAgentId || 'Agent cible';
     const sourceChannel = normalizeChannelKey(source.channelKey) || normalizeChannelKey(notification.threadId) || 'general';
@@ -25,6 +26,22 @@ class EkybotCompanionRelayProcessor {
       : typeof notification.content === 'string'
         ? notification.content.trim()
         : '';
+
+    if (type === 'channel_dispatch') {
+      return [
+        '[CHANNEL DISPATCH]',
+        `Target agent: ${targetAgentName}`,
+        `Source channel: #${sourceChannel}`,
+        `Sender: ${sourceAgentName}`,
+        'Tu réponds au message utilisateur de ton propre channel.',
+        'Réponds normalement, sans recopier ce préambule technique.',
+        'Ta réponse sera republiée automatiquement dans le même channel visible par l’utilisateur.',
+        'Si aucune réponse n’est nécessaire, réponds exactement NO_REPLY.',
+        '',
+        'Message reçu :',
+        content,
+      ].join('\n');
+    }
 
     return [
       '[CC INTER-AGENT]',
@@ -54,6 +71,7 @@ class EkybotCompanionRelayProcessor {
     return trimmed
       .replace(/^\*\*[^\n]+ → #[a-zA-Z0-9_-]+\*\*\n*/m, '')
       .replace(/^\[CC INTER-AGENT\].*?\n*/m, '')
+      .replace(/^\[CHANNEL DISPATCH\].*?\n*/m, '')
       .replace(/^📨 \[[^\]]+\]\s*/m, '')
       .trim();
   }
