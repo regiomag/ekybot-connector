@@ -86,12 +86,16 @@ class EkybotCompanionRelayProcessor {
 
     const type = relay.type || 'agent_notification';
     const sourceChannel = normalizeChannelKey(relay?.source?.channelKey) || normalizeChannelKey(notification?.threadId) || 'general';
-    const targetChannel = type === 'agent_notification'
-      ? sourceChannel
-      : normalizeChannelKey(target.channelKey) || sourceChannel || targetAgentId;
+    const targetChannel = normalizeChannelKey(target.channelKey) || targetAgentId || sourceChannel || 'general';
     const sessionKey = `agent:${targetAgentId}:ekybot:${targetChannel}`;
     const prompt = this.buildRelayPrompt(notification);
     const targetModel = typeof target.model === 'string' && target.model.trim() ? target.model.trim() : null;
+
+    console.log(
+      chalk.gray(
+        `[relay] ${notification.id} ${type} source=#${sourceChannel} targetAgent=${targetAgentId} targetChannel=#${targetChannel} session=${sessionKey} model=${targetModel || `openclaw:${targetAgentId}`}`
+      )
+    );
 
     await this.apiClient.updateRelayNotifications(machineId, {
       notificationIds: [notification.id],
@@ -156,7 +160,15 @@ class EkybotCompanionRelayProcessor {
       } catch (error) {
         result.failed += 1;
         const message = error instanceof Error ? error.message : String(error);
-        console.warn(chalk.yellow(`! relay failed ${notification?.id || 'unknown'}: ${message}`));
+        const relay = notification?.relay || {};
+        const sourceChannel = normalizeChannelKey(relay?.source?.channelKey) || normalizeChannelKey(notification?.threadId) || 'general';
+        const targetAgentId = relay?.target?.agentId || notification?.toAgentId || 'unknown';
+        const targetChannel = normalizeChannelKey(relay?.target?.channelKey) || targetAgentId || sourceChannel || 'general';
+        console.warn(
+          chalk.yellow(
+            `! relay failed ${notification?.id || 'unknown'} ${(relay?.type || 'agent_notification')} source=#${sourceChannel} targetAgent=${targetAgentId} targetChannel=#${targetChannel}: ${message}`
+          )
+        );
         try {
           await this.apiClient.updateRelayNotifications(machineId, {
             notificationIds: [notification.id],
