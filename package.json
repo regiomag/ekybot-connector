@@ -46,6 +46,8 @@
     "companion:sync": "node scripts/companion-sync.js",
     "companion:apply": "node scripts/companion-apply.js",
     "companion:reconcile": "node scripts/companion-reconcile.js",
+    "companion:daemon": "node scripts/companion-daemon.js",
+    "companion:install-launchd": "node scripts/companion-install-launchd.js",
     "setup": "node scripts/setup.js",
     "preview": "node scripts/preview.js",
     "enable-telemetry": "node scripts/enable-telemetry.js",
