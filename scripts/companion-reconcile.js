@@ -23,6 +23,10 @@ async function reconcileCompanionState() {
     process.exit(1);
   }
 
+  if (state.machineFingerprint) {
+    process.env.EKYBOT_MACHINE_FINGERPRINT = state.machineFingerprint;
+  }
+
   const startedAt = new Date().toISOString();
   stateStore.merge({
     lastReconcileStartedAt: startedAt,

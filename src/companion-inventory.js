@@ -76,6 +76,9 @@ class OpenClawInventoryCollector {
     return {
       protocolVersion: inventory.version,
       machineId,
+      ...(process.env.EKYBOT_MACHINE_FINGERPRINT
+        ? { machineFingerprint: process.env.EKYBOT_MACHINE_FINGERPRINT }
+        : {}),
       ...(inventory.openClaw.configHash ? { configHash: inventory.openClaw.configHash } : {}),
       ...(inventory.openClaw.configPath ? { rootConfigPath: inventory.openClaw.configPath } : {}),
       managedFragmentPaths: inventory.openClaw.managedFragmentPath
@@ -104,6 +107,9 @@ class OpenClawInventoryCollector {
     const heartbeat = {
       protocolVersion: inventory.version,
       machineId,
+      ...(process.env.EKYBOT_MACHINE_FINGERPRINT
+        ? { machineFingerprint: process.env.EKYBOT_MACHINE_FINGERPRINT }
+        : {}),
       status: inventory.validation.configExists && inventory.validation.configValid ? 'online' : 'error',
       lastSeenAt: inventory.collectedAt,
       openclawReachable: inventory.validation.configExists && inventory.validation.configValid,

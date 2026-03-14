@@ -22,6 +22,10 @@ async function syncCompanionInventory() {
     process.exit(1);
   }
 
+  if (state.machineFingerprint) {
+    process.env.EKYBOT_MACHINE_FINGERPRINT = state.machineFingerprint;
+  }
+
   const configManager = new OpenClawConfigManager();
   const inventoryCollector = new OpenClawInventoryCollector(configManager, {
     machineName: state.machineName,

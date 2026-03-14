@@ -6,9 +6,9 @@ const inquirer = require('inquirer');
 const os = require('os');
 const {
   EkybotCompanionApiClient,
-  EkybotCompanionStateStore,
   OpenClawConfigManager,
   OpenClawInventoryCollector,
+  EkybotCompanionStateStore,
 } = require('../src');
 
 async function registerCompanion() {
@@ -79,6 +79,8 @@ async function registerCompanion() {
   }
 
   const configManager = new OpenClawConfigManager();
+  const machineFingerprint = stateStore.computeMachineFingerprint(configManager.configPath);
+  process.env.EKYBOT_MACHINE_FINGERPRINT = machineFingerprint;
   const inventoryCollector = new OpenClawInventoryCollector(configManager, {
     machineName: answers.machineName,
   });
@@ -92,6 +94,8 @@ async function registerCompanion() {
     protocolVersion: '2026-03-13',
     machineId: existingState?.machineId || `machine-${os.hostname()}`,
     machineName: answers.machineName,
+    machineFingerprint,
+    rootConfigPath: configManager.configPath,
     platform: inventoryCollector.platform,
     companionVersion: '0.1.0',
     openclawVersion: 'unknown',
@@ -107,6 +111,8 @@ async function registerCompanion() {
     machineId: machine.id,
     machineApiKey: result.apiKey,
     machineName: machine.machineName,
+    machineFingerprint,
+    rootConfigPath: configManager.configPath,
   });
 
   console.log(chalk.green('\n✅ Companion machine registered'));

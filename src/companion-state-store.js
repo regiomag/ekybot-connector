@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
 
 class EkybotCompanionStateStore {
   constructor(filePath = null) {
@@ -8,10 +9,17 @@ class EkybotCompanionStateStore {
       filePath ||
       process.env.EKYBOT_COMPANION_STATE_PATH ||
       path.join(os.homedir(), '.config', 'ekybot-companion', 'state.json');
+    this.identityFilePath =
+      process.env.EKYBOT_COMPANION_IDENTITY_PATH ||
+      path.join(os.homedir(), '.config', 'ekybot-companion', 'machine.json');
   }
 
   ensureParentDir() {
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
+  }
+
+  ensureIdentityParentDir() {
+    fs.mkdirSync(path.dirname(this.identityFilePath), { recursive: true });
   }
 
   load() {
@@ -20,6 +28,55 @@ class EkybotCompanionStateStore {
     }
 
     return JSON.parse(fs.readFileSync(this.filePath, 'utf8'));
+  }
+
+  loadIdentity() {
+    if (!fs.existsSync(this.identityFilePath)) {
+      return null;
+    }
+
+    return JSON.parse(fs.readFileSync(this.identityFilePath, 'utf8'));
+  }
+
+  saveIdentity(identity) {
+    this.ensureIdentityParentDir();
+    fs.writeFileSync(
+      this.identityFilePath,
+      JSON.stringify(
+        {
+          ...identity,
+          updatedAt: new Date().toISOString(),
+        },
+        null,
+        2
+      ),
+      'utf8'
+    );
+  }
+
+  ensureDeviceIdentity() {
+    const current = this.loadIdentity();
+
+    if (current?.deviceId) {
+      return current;
+    }
+
+    const next = {
+      deviceId: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+    };
+
+    this.saveIdentity(next);
+    return next;
+  }
+
+  computeMachineFingerprint(rootConfigPath) {
+    const identity = this.ensureDeviceIdentity();
+    const normalizedRootConfigPath = rootConfigPath || 'unknown-openclaw-root';
+    return crypto
+      .createHash('sha256')
+      .update(`${identity.deviceId}:${normalizedRootConfigPath}`)
+      .digest('hex');
   }
 
   save(state) {
