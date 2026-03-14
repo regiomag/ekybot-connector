@@ -32,6 +32,8 @@ class OpenClawGatewayClient {
 
     if (this.authToken) {
       headers.Authorization = `Bearer ${this.authToken}`;
+      headers['x-workspace-api-key'] = this.authToken;
+      headers['x-agent-token'] = this.authToken;
     }
 
     return headers;
