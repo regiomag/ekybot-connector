@@ -77,6 +77,17 @@ class EkybotCompanionApiClient {
     return this.request('GET', `/api/companion/machines/${machineId}/desired-state`);
   }
 
+  async fetchRelayNotifications(machineId, { limit = 20 } = {}) {
+    return this.request(
+      'GET',
+      `/api/companion/machines/${machineId}/relay?limit=${encodeURIComponent(String(limit))}`
+    );
+  }
+
+  async updateRelayNotifications(machineId, payload) {
+    return this.request('PATCH', `/api/companion/machines/${machineId}/relay`, payload);
+  }
+
   async updateOperation(machineId, operationId, payload) {
     return this.request(
       'PATCH',
