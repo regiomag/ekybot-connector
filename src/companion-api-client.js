@@ -88,6 +88,10 @@ class EkybotCompanionApiClient {
     return this.request('PATCH', `/api/companion/machines/${machineId}/relay`, payload);
   }
 
+  async postRelayMessage(machineId, payload) {
+    return this.request('POST', `/api/companion/machines/${machineId}/relay/messages`, payload);
+  }
+
   async updateOperation(machineId, operationId, payload) {
     return this.request(
       'PATCH',

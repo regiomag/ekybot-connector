@@ -7,7 +7,9 @@ const {
   EkybotCompanionExecutor,
   EkybotCompanionStateStore,
   OpenClawConfigManager,
+  OpenClawGatewayClient,
   OpenClawInventoryCollector,
+  EkybotCompanionRelayProcessor,
 } = require('../src');
 const { buildCompanionRuntimeState } = require('../src/companion-runtime-state');
 
@@ -41,6 +43,7 @@ async function reconcileCompanionState() {
     machineName: state.machineName,
   });
   const executor = new EkybotCompanionExecutor(apiClient, configManager, stateStore);
+  const relayProcessor = new EkybotCompanionRelayProcessor(apiClient, new OpenClawGatewayClient());
 
   const buildHeartbeat = (runtimeState, pendingOperationCount) => {
     const heartbeat = inventoryCollector.toHeartbeatPayload(state.machineId);
@@ -128,6 +131,8 @@ async function reconcileCompanionState() {
     )
   );
 
+  const relayResult = await relayProcessor.processPendingRelays(state.machineId);
+
   console.log(
     chalk.green(
       `✓ Reconcile completed (${applyResult.appliedOperationIds.length}/${applyResult.pendingOperations.length} operations applied)`
@@ -138,6 +143,13 @@ async function reconcileCompanionState() {
   }
   console.log(chalk.gray(`Managed agents written: ${(applyResult.desiredState?.agents || []).length}`));
   console.log(chalk.gray(`Pending operations remaining: ${finalPendingOperationCount}`));
+  if (relayResult.fetched > 0) {
+    console.log(
+      chalk.gray(
+        `Relay notifications: ${relayResult.delivered}/${relayResult.fetched} delivered, ${relayResult.replied} replies published${relayResult.failed > 0 ? `, ${relayResult.failed} failed` : ''}`
+      )
+    );
+  }
   console.log(
     driftDetected
       ? chalk.yellow(`Drift detected: ${driftReason}`)
