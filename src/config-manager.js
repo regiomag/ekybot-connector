@@ -139,17 +139,35 @@ class OpenClawConfigManager {
     }
   }
 
+  getManagedIncludePath(managedFragmentPath = this.getManagedFragmentPath()) {
+    const resolvedFragmentPath = this.resolveHomePath(managedFragmentPath);
+    const configDir = path.dirname(this.configPath);
+    const relativePath = path.relative(configDir, resolvedFragmentPath);
+
+    if (relativePath && !relativePath.startsWith('..') && !path.isAbsolute(relativePath)) {
+      return relativePath.split(path.sep).join('/');
+    }
+
+    return resolvedFragmentPath;
+  }
+
   ensureManagedInclude(managedFragmentPath = this.getManagedFragmentPath()) {
     const config = this.readConfig();
-    const includePath = managedFragmentPath;
+    const includePath = this.getManagedIncludePath(managedFragmentPath);
+    const managedBasename = path.basename(this.resolveHomePath(managedFragmentPath));
     const currentIncludes = this.getIncludePaths();
-    const alreadyIncluded = currentIncludes.includes(includePath);
 
-    if (alreadyIncluded) {
+    const nextIncludes = [...currentIncludes.filter((candidate) => {
+      const normalized = this.resolveHomePath(candidate);
+      return path.basename(normalized) !== managedBasename;
+    }), includePath];
+
+    const updated = JSON.stringify(nextIncludes) !== JSON.stringify(currentIncludes);
+
+    if (!updated) {
       return { updated: false, includePath, configPath: this.configPath };
     }
 
-    const nextIncludes = [...currentIncludes, includePath];
     config.$include = nextIncludes;
 
     if ('include' in config) {
@@ -166,26 +184,14 @@ class OpenClawConfigManager {
     );
 
     const fragment = {
-      generatedBy: 'ekybot-companion',
-      generatedAt: new Date().toISOString(),
-      desiredConfigVersion: desiredState.desiredConfigVersion || 0,
       agents: {
         list: (desiredState.agents || []).map((agent) => ({
           id: agent.openclawAgentId,
           name: agent.name,
-          provider: agent.provider || null,
           model: agent.model,
           workspace: agent.workspacePath || null,
-          channelKey: agent.channelKey || null,
-          projectId: agent.projectId || null,
-          metadata: {
-            ekybotManaged: true,
-            managedBy: 'ekybot-companion',
-            templateVersion: agent.templateVersion || null,
-          },
         })),
       },
-      bindings: desiredState.bindings || [],
     };
 
     const content = `${JSON.stringify(fragment, null, 2)}\n`;
