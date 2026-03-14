@@ -197,6 +197,47 @@ class OpenClawConfigManager {
     };
   }
 
+  readManagedFragmentAgents() {
+    const fragmentPath = this.getManagedFragmentPath();
+
+    if (!fs.existsSync(fragmentPath)) {
+      return [];
+    }
+
+    try {
+      const raw = fs.readFileSync(fragmentPath, 'utf8');
+      const parsed = JSON.parse(raw);
+      const sourceAgents = Array.isArray(parsed?.agents)
+        ? parsed.agents
+        : Array.isArray(parsed?.agents?.list)
+          ? parsed.agents.list
+          : [];
+
+      return sourceAgents.map((agent, index) => this.normalizeAgentRecord(agent, index));
+    } catch (error) {
+      console.warn(chalk.yellow(`Warning: failed to parse managed fragment at ${fragmentPath}: ${error.message}`));
+      return [];
+    }
+  }
+
+  normalizeAgentRecord(agent, index) {
+    return {
+      externalId: agent.id || agent.key || agent.name || `agent-${index + 1}`,
+      name: agent.name || agent.id || agent.key || `Agent ${index + 1}`,
+      ownership: this.inferAgentOwnership(agent),
+      model: agent.model || agent.engine || agent.provider_model || null,
+      workspacePath: agent.workspace || agent.workspacePath || agent.path || null,
+      channelKey: agent.channelKey || agent.channel || null,
+      projectKey: agent.projectKey || agent.project || agent.projectId || null,
+      metadata: {
+        provider: agent.provider || null,
+        tools: Array.isArray(agent.tools) ? agent.tools : [],
+        rawId: agent.id || null,
+        bindings: Array.isArray(agent.bindings) ? agent.bindings : [],
+      },
+    };
+  }
+
   listAgents() {
     try {
       const config = this.readConfig();
@@ -205,22 +246,25 @@ class OpenClawConfigManager {
         : Array.isArray(config?.agents?.list)
           ? config.agents.list
           : [];
+      const normalizedBaseAgents = sourceAgents.map((agent, index) =>
+        this.normalizeAgentRecord(agent, index)
+      );
+      const managedFragmentAgents = this.readManagedFragmentAgents();
+      const mergedById = new Map();
 
-      return sourceAgents.map((agent, index) => ({
-        externalId: agent.id || agent.key || agent.name || `agent-${index + 1}`,
-        name: agent.name || agent.id || agent.key || `Agent ${index + 1}`,
-        ownership: this.inferAgentOwnership(agent),
-        model: agent.model || agent.engine || agent.provider_model || null,
-        workspacePath: agent.workspace || agent.workspacePath || agent.path || null,
-        channelKey: agent.channelKey || agent.channel || null,
-        projectKey: agent.projectKey || agent.project || null,
-        metadata: {
-          provider: agent.provider || null,
-          tools: Array.isArray(agent.tools) ? agent.tools : [],
-          rawId: agent.id || null,
-          bindings: Array.isArray(agent.bindings) ? agent.bindings : [],
-        },
-      }));
+      for (const agent of normalizedBaseAgents) {
+        mergedById.set(agent.externalId, agent);
+      }
+
+      for (const agent of managedFragmentAgents) {
+        mergedById.set(agent.externalId, {
+          ...(mergedById.get(agent.externalId) || {}),
+          ...agent,
+          ownership: 'managed',
+        });
+      }
+
+      return Array.from(mergedById.values());
     } catch (error) {
       return [];
     }
