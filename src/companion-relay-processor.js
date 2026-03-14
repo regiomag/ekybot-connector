@@ -15,8 +15,10 @@ class EkybotCompanionRelayProcessor {
   buildRelayPrompt(notification) {
     const relay = notification?.relay || {};
     const source = relay.source || {};
+    const target = relay.target || {};
     const message = relay.message || {};
     const sourceAgentName = source.agentName || notification.fromAgentName || source.agentId || 'Un autre agent';
+    const targetAgentName = target.name || target.agentId || notification?.toAgentId || 'Agent cible';
     const sourceChannel = normalizeChannelKey(source.channelKey) || normalizeChannelKey(notification.threadId) || 'general';
     const content = typeof message.content === 'string'
       ? message.content.trim()
@@ -26,10 +28,13 @@ class EkybotCompanionRelayProcessor {
 
     return [
       '[CC INTER-AGENT]',
+      `Target agent: ${targetAgentName}`,
       `Source agent: ${sourceAgentName}`,
       `Source channel: #${sourceChannel}`,
+      'Tu as été explicitement mentionné par un autre agent.',
       'Réponds utilement à la demande, sans recopier ce préambule technique.',
-      'Ta réponse sera republiée dans le channel source visible par l’utilisateur.',
+      'Ta réponse sera republiée automatiquement dans le channel source visible par l’utilisateur.',
+      'Si aucune réponse n’est nécessaire, réponds exactement NO_REPLY.',
       '',
       'Message reçu :',
       content,
@@ -65,11 +70,18 @@ class EkybotCompanionRelayProcessor {
     const targetChannel = normalizeChannelKey(target.channelKey) || sourceChannel || targetAgentId;
     const sessionKey = `agent:${targetAgentId}:ekybot:${targetChannel}`;
     const prompt = this.buildRelayPrompt(notification);
+    const targetModel = typeof target.model === 'string' && target.model.trim() ? target.model.trim() : null;
+
+    await this.apiClient.updateRelayNotifications(machineId, {
+      notificationIds: [notification.id],
+      status: 'in_progress',
+    });
 
     const gatewayResult = await this.gatewayClient.sendRelayPrompt({
       agentId: targetAgentId,
       sessionKey,
       prompt,
+      model: targetModel,
     });
 
     const cleanedReply = this.cleanReply(gatewayResult.content);
