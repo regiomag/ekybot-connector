@@ -84,8 +84,11 @@ class EkybotCompanionRelayProcessor {
       throw new Error('Relay target agent is missing');
     }
 
+    const type = relay.type || 'agent_notification';
     const sourceChannel = normalizeChannelKey(relay?.source?.channelKey) || normalizeChannelKey(notification?.threadId) || 'general';
-    const targetChannel = normalizeChannelKey(target.channelKey) || sourceChannel || targetAgentId;
+    const targetChannel = type === 'agent_notification'
+      ? sourceChannel
+      : normalizeChannelKey(target.channelKey) || sourceChannel || targetAgentId;
     const sessionKey = `agent:${targetAgentId}:ekybot:${targetChannel}`;
     const prompt = this.buildRelayPrompt(notification);
     const targetModel = typeof target.model === 'string' && target.model.trim() ? target.model.trim() : null;
