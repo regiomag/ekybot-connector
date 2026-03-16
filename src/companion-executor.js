@@ -114,7 +114,6 @@ class EkybotCompanionExecutor {
       'update_agent_bindings',
       'update_workspace_templates',
       'archive_agent',
-      'delete_agent',
     ]);
 
     if (operation.type === 'scan_inventory') {
@@ -158,6 +157,51 @@ class EkybotCompanionExecutor {
       this.logger.log(
         chalk.green(
           `✓ ${operation.type} applied (${desiredState.agents.length} managed agents written)`
+        )
+      );
+      return;
+    }
+
+    if (operation.type === 'delete_agent') {
+      const payload = operation.payload || {};
+      const removeInfo = this.configManager.removeAgentFromConfig({
+        openclawAgentId: payload.openclawAgentId,
+        workspacePath: payload.workspacePath,
+        name: payload.name,
+      });
+      const workspaceInfo = this.configManager.deleteWorkspace(payload.workspacePath);
+      const includeInfo = this.configManager.ensureManagedInclude(
+        desiredState.managedFragmentPath
+      );
+      const fragmentInfo = this.configManager.writeManagedFragment(desiredState);
+
+      const persistedState = this.stateStore.load() || {};
+      this.stateStore.save({
+        ...persistedState,
+        lastAppliedDesiredConfigVersion: desiredState.desiredConfigVersion,
+        lastAppliedManagedFragmentPath: fragmentInfo.fragmentPath,
+        lastAppliedManagedFragmentHash: fragmentInfo.fragmentHash,
+      });
+
+      await this.apiClient.updateOperation(machineId, operation.id, {
+        status: 'applied',
+        result: {
+          appliedAt: new Date().toISOString(),
+          desiredConfigVersion: desiredState.desiredConfigVersion,
+          includeUpdated: includeInfo.updated,
+          fragmentPath: fragmentInfo.fragmentPath,
+          fragmentHash: fragmentInfo.fragmentHash,
+          managedAgentCount: desiredState.agents.length,
+          removedFromConfig: removeInfo.updated,
+          workspaceDeleted: workspaceInfo.deleted,
+          workspaceDeleteReason: workspaceInfo.reason || null,
+          workspacePath: workspaceInfo.workspacePath || payload.workspacePath || null,
+        },
+      });
+
+      this.logger.log(
+        chalk.green(
+          `✓ delete_agent applied (${payload.openclawAgentId || payload.name || 'unknown'} removed)`
         )
       );
       return;

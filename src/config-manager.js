@@ -203,6 +203,74 @@ class OpenClawConfigManager {
     };
   }
 
+  removeAgentFromConfig({ openclawAgentId, workspacePath, name } = {}) {
+    const config = this.readConfig();
+    let updated = false;
+
+    const matchesAgent = (agent) => {
+      const candidateId = agent?.id || agent?.key || agent?.name || null;
+      const candidateWorkspace = agent?.workspace || agent?.workspacePath || agent?.path || null;
+
+      if (openclawAgentId && candidateId === openclawAgentId) {
+        return true;
+      }
+
+      if (workspacePath && candidateWorkspace) {
+        return this.resolveHomePath(String(candidateWorkspace)) === this.resolveHomePath(workspacePath);
+      }
+
+      if (name && agent?.name === name) {
+        return true;
+      }
+
+      return false;
+    };
+
+    if (Array.isArray(config.agents)) {
+      const nextAgents = config.agents.filter((agent) => !matchesAgent(agent));
+      if (nextAgents.length !== config.agents.length) {
+        config.agents = nextAgents;
+        updated = true;
+      }
+    } else if (Array.isArray(config?.agents?.list)) {
+      const nextAgents = config.agents.list.filter((agent) => !matchesAgent(agent));
+      if (nextAgents.length !== config.agents.list.length) {
+        config.agents.list = nextAgents;
+        updated = true;
+      }
+    }
+
+    if (updated) {
+      this.writeConfig(config);
+    }
+
+    return { updated, configPath: this.configPath };
+  }
+
+  deleteWorkspace(workspacePath) {
+    if (!workspacePath) {
+      return { deleted: false, reason: 'missing_workspace_path' };
+    }
+
+    const resolvedPath = this.resolveHomePath(workspacePath);
+    if (!fs.existsSync(resolvedPath)) {
+      return { deleted: false, reason: 'workspace_missing', workspacePath: resolvedPath };
+    }
+
+    const normalizedPath = resolvedPath.replace(/\\/g, '/');
+    const looksLikeOpenClawWorkspace =
+      normalizedPath.includes('/.openclaw/') ||
+      normalizedPath.includes('/openclaw/') ||
+      path.basename(resolvedPath).startsWith('workspace-');
+
+    if (!looksLikeOpenClawWorkspace) {
+      return { deleted: false, reason: 'workspace_path_not_safe', workspacePath: resolvedPath };
+    }
+
+    fs.rmSync(resolvedPath, { recursive: true, force: true });
+    return { deleted: true, workspacePath: resolvedPath };
+  }
+
   readManagedFragmentAgents() {
     const fragmentPath = this.getManagedFragmentPath();
 
