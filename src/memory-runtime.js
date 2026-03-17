@@ -9,6 +9,7 @@ const ROOT_MEMORY_FILES = [
   'history.md',
   'MEMORY.md',
 ];
+const PROJECT_MEMORY_FILES = ['working-memory.md', 'facts.md', 'rules.md', 'history.md'];
 
 function safeReadText(filePath) {
   if (!fs.existsSync(filePath)) {
@@ -42,6 +43,35 @@ function writeFileAtomic(targetPath, content) {
   fs.renameSync(tempPath, targetPath);
 }
 
+function slugifyProjectKey(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function listNewestFiles(dirPath, { suffix, limit = 3 } = {}) {
+  if (!fs.existsSync(dirPath)) {
+    return [];
+  }
+
+  return fs
+    .readdirSync(dirPath)
+    .filter((entry) => !suffix || entry.endsWith(suffix))
+    .map((entry) => {
+      const fullPath = path.join(dirPath, entry);
+      const stat = fs.statSync(fullPath);
+      return {
+        entry,
+        fullPath,
+        mtimeMs: stat.mtimeMs,
+      };
+    })
+    .sort((a, b) => b.mtimeMs - a.mtimeMs)
+    .slice(0, limit);
+}
+
 class OpenClawMemoryRuntime {
   constructor(configManager, options = {}) {
     this.configManager = configManager;
@@ -56,23 +86,55 @@ class OpenClawMemoryRuntime {
     return path.join(workspacePath, 'context-index.json');
   }
 
-  buildContextIndex({ agent, workspacePath }) {
-    const now = this.now();
+  getProjectMemoryPath(workspacePath, projectKey) {
+    if (!projectKey) {
+      return null;
+    }
+
+    const memoryRoot = this.getMemoryRoot(workspacePath);
+    const candidates = Array.from(
+      new Set([String(projectKey).trim(), slugifyProjectKey(projectKey)].filter(Boolean))
+    );
+
+    for (const candidate of candidates) {
+      const fullPath = path.join(memoryRoot, 'projects', candidate);
+      if (fs.existsSync(fullPath)) {
+        return fullPath;
+      }
+    }
+
+    return path.join(memoryRoot, 'projects', candidates[0] || String(projectKey).trim());
+  }
+
+  collectActiveSources({ workspacePath, projectKey }) {
+    const projectMemoryPath = this.getProjectMemoryPath(workspacePath, projectKey);
+    const sourceDir = projectMemoryPath && fs.existsSync(projectMemoryPath) ? projectMemoryPath : workspacePath;
+    const sourcePrefix = sourceDir === workspacePath ? '' : `memory/projects/${path.basename(sourceDir)}/`;
     const files = [];
 
-    for (const filename of ROOT_MEMORY_FILES) {
-      const fullPath = path.join(workspacePath, filename);
+    for (const filename of PROJECT_MEMORY_FILES) {
+      const fullPath = path.join(sourceDir, filename);
       if (!fs.existsSync(fullPath)) {
         continue;
       }
       const stat = fs.statSync(fullPath);
       files.push({
         key: filename,
-        path: filename,
+        path: `${sourcePrefix}${filename}`,
         updated_at: stat.mtime.toISOString(),
         freshness: 'fresh',
       });
     }
+
+    return files;
+  }
+
+  buildContextIndex({ agent, workspacePath }) {
+    const now = this.now();
+    const files = this.collectActiveSources({
+      workspacePath,
+      projectKey: agent.projectKey,
+    });
 
     const memoryRoot = this.getMemoryRoot(workspacePath);
     const summariesDir = path.join(memoryRoot, 'summaries');
@@ -150,6 +212,20 @@ class OpenClawMemoryRuntime {
       }
     }
 
+    const projectMemoryPath = this.getProjectMemoryPath(workspacePath, agent.projectKey);
+    if (projectMemoryPath && fs.existsSync(projectMemoryPath)) {
+      for (const filename of PROJECT_MEMORY_FILES) {
+        const fullPath = path.join(projectMemoryPath, filename);
+        const content = safeReadText(fullPath);
+        if (content !== null) {
+          files.push({
+            filename: `memory/projects/${path.basename(projectMemoryPath)}/${filename}`,
+            content,
+          });
+        }
+      }
+    }
+
     const contextIndexContent = safeReadText(this.getContextIndexPath(workspacePath));
     if (contextIndexContent !== null) {
       files.push({ filename: 'context-index.json', content: contextIndexContent });
@@ -168,6 +244,14 @@ class OpenClawMemoryRuntime {
         if (content !== null) {
           files.push({ filename: `memory/summaries/${entry}`, content });
         }
+      }
+    }
+
+    const dailyDir = path.join(this.getMemoryRoot(workspacePath), 'daily');
+    for (const daily of listNewestFiles(dailyDir, { suffix: '.md', limit: 3 })) {
+      const content = safeReadText(daily.fullPath);
+      if (content !== null) {
+        files.push({ filename: `memory/daily/${daily.entry}`, content });
       }
     }
 
