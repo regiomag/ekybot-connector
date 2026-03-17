@@ -43,6 +43,7 @@
     "restart": "npm run stop && npm run start",
     "register": "node scripts/register.js",
     "companion:register": "node scripts/companion-register.js",
+    "companion:api-check": "node scripts/companion-api-check.js",
     "companion:sync": "node scripts/companion-sync.js",
     "companion:memory-check": "node scripts/companion-memory-check.js",
     "companion:apply": "node scripts/companion-apply.js",

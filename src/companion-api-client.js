@@ -33,6 +33,19 @@ class EkybotCompanionApiClient {
     return headers;
   }
 
+  getAuthMode() {
+    if (this.machineApiKey) {
+      return 'machine_api_key';
+    }
+    if (this.registrationToken) {
+      return 'registration_token';
+    }
+    if (this.userBearerToken) {
+      return 'user_bearer_token';
+    }
+    return 'anonymous';
+  }
+
   async request(method, pathname, data = null, extraHeaders = {}) {
     const response = await fetchImpl(`${this.baseUrl}${pathname}`, {
       method,
@@ -42,12 +55,36 @@ class EkybotCompanionApiClient {
     });
 
     const rawText = await response.text();
-    const payload = rawText ? JSON.parse(rawText) : null;
+    const contentType = response.headers.get('content-type') || '';
+    const isJson = contentType.toLowerCase().includes('application/json');
+    let payload = null;
+    if (rawText && isJson) {
+      try {
+        payload = JSON.parse(rawText);
+      } catch (error) {
+        throw new Error(
+          `Companion API request failed on ${method} ${pathname}: invalid JSON response (${contentType})`
+        );
+      }
+    }
 
     if (!response.ok) {
+      if (!isJson) {
+        const preview = rawText.replace(/\s+/g, ' ').slice(0, 160);
+        throw new Error(
+          `Companion API request failed on ${method} ${pathname}: ${response.status} ${response.statusText} (content-type: ${contentType || 'unknown'}, auth: ${this.getAuthMode()}, body: ${preview})`
+        );
+      }
       const message = payload?.error || payload?.message || `${response.status} ${response.statusText}`;
       const details = payload?.details ? ` | details: ${JSON.stringify(payload.details)}` : '';
       throw new Error(`Companion API request failed on ${method} ${pathname}: ${message}${details}`);
+    }
+
+    if (rawText && !isJson) {
+      const preview = rawText.replace(/\s+/g, ' ').slice(0, 160);
+      throw new Error(
+        `Companion API request failed on ${method} ${pathname}: expected JSON but received ${contentType || 'unknown'} (auth: ${this.getAuthMode()}, body: ${preview})`
+      );
     }
 
     return payload;
