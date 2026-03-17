@@ -1,281 +1,109 @@
-# Ekybot Connector for OpenClaw
+# Ekybot Connector
 
-**Transform your local OpenClaw agents into a remotely managed AI team.**
+Bridge your local OpenClaw gateway to Ekybot so users can chat with agents from web/mobile with reliable inter-agent routing.
 
-📱 **iOS** • 🤖 **Android** • 🌐 **Web Dashboard** • 💰 **Cost Monitoring** • 👥 **Team Collaboration**
+## What’s new (2026-03)
 
----
+- Reliable async relay behavior (request accepted quickly, reply arrives when ready)
+- Source-channel return path for mentions/CC
+- Inter-agent routing stabilized (`targetAgent` + channel mapping)
+- Better UX around transient failures (no raw infra errors expected in UI)
 
-## Quick Start (Recommended)
+## 5-minute onboarding
 
-🚀 **Use Ekybot hosted service** → [Sign up at ekybot.com](https://ekybot.com)
-
-The hosted service provides:
-
-- Zero-config setup (just login)
-- Mobile apps for iOS/Android
-- Web dashboard with real-time monitoring
-- Team collaboration features
-- Managed infrastructure & support
-
-For the new Companion-based OpenClaw control plane, see:
-
-- [COMPANION_TESTING_GUIDE.md](/Users/michael/web/ekybot-connector/COMPANION_TESTING_GUIDE.md)
-
----
-
-## Self-Host Installation (Advanced)
-
-For developers who want to run the connector themselves:
-
-### Prerequisites
-
-- OpenClaw installed and configured
-- Node.js 18+ and npm
-- Ekybot account (free tier available)
-
-### Install
+### 1) Install + configure
 
 ```bash
-# 1. Clone this repository
 git clone https://github.com/regiomag/ekybot-connector.git
 cd ekybot-connector
-
-# 2. Install dependencies
 npm install
-
-# 3. Configure your API credentials
 cp .env.example .env
-# Edit .env with your Ekybot API key
+# fill EKYBOT_API_KEY + endpoint values
+```
 
-# 4. Register your OpenClaw workspace
+### 2) Register workspace
+
+```bash
 npm run register
+```
 
-# 5. Enable telemetry (optional but recommended)
-npm run enable-telemetry
+### 3) Start connector
 
-# 6. Start the connector service
+```bash
 npm run start
 ```
 
-### Configuration
-
-Create `.env` file:
-
-```bash
-EKYBOT_API_KEY=your_api_key_here
-EKYBOT_API_URL=https://api.ekybot.com
-WORKSPACE_NAME=my-workspace
-```
-
-Get your API key from [Ekybot Dashboard](https://ekybot.com/settings/api)
-
-### Telemetry Configuration
-
-**Telemetry is disabled by default.** To enable automatic monitoring:
-
-```bash
-# Configure telemetry settings
-npm run enable-telemetry
-```
-
-This will prompt you to configure:
-
-- ✅ **Enable/disable** automatic data streaming
-- ⏱️ **Interval** - how often to send data (30-600 seconds)
-- 🌐 **WebSocket** - enable real-time updates (optional)
-
-**You have full control** over what data is shared and when.
-
----
-
-## What This Does
-
-**The connector bridges your local OpenClaw agents to the Ekybot platform:**
-
-```
-OpenClaw (local agents)
-        ↓
-Ekybot Connector (this code)
-        ↓
-Ekybot Platform (remote dashboard)
-        ↓
-📱 Mobile Apps / 🌐 Web Interface
-```
-
-### Data Transmitted
-
-**Sent to Ekybot:**
-
-- ✅ Agent status (running/stopped)
-- ✅ Performance metrics (response time, token usage)
-- ✅ Cost tracking data (model usage, API spending)
-- ✅ Conversation metadata (timing, model used)
-
-**Never sent by telemetry:**
-
-- ❌ Local files or documents
-- ❌ Credentials or API keys (stored locally only)
-- ❌ System configuration files
-- ❌ SSH keys or authentication tokens
-
-**⚠️ Important — Conversation Content:**
-- **Conversation content IS transmitted** when you use the Ekybot chat interface (web/mobile). This is how the UI displays your agent conversations — same as any chat app.
-- **Telemetry does NOT transmit conversation content.** It only sends metadata (timing, model used, token counts).
-- **You control everything:** telemetry is opt-in, and the chat relay requires explicit gateway configuration.
-
-### Why Use Ekybot?
-
-**Remote Management:**
-
-- 📱 Control agents from your phone anywhere
-- 🌐 Web dashboard for team collaboration
-- 💰 Real-time cost monitoring and alerts
-- 📊 Analytics across your entire AI agent fleet
-- ⚡ Push notifications for critical events
-- 👥 Multi-user access and permissions
-
-**VS Local-Only Setup:**
-
-- No SSH needed for remote monitoring
-- Mobile access
-- Team collaboration without VPN setup
-- Automatic cost tracking across agents
-- Centralized logging and debugging
-
----
-
-## Architecture
-
-### Components
-
-- **api-client.js** - HTTP client for Ekybot API calls
-- **config-manager.js** - OpenClaw configuration management
-- **telemetry.js** - Real-time agent status streaming
-- **scripts/** - Setup and maintenance utilities
-
-### Background Service
-
-The connector runs a lightweight Node.js process (~10MB RAM) that:
-
-- Streams agent telemetry every 60 seconds
-- Monitors OpenClaw health and status
-- Handles authentication token refresh
-- Can be paused/resumed anytime
-
-### Security
-
-- 🔒 **Token-based authentication** - no passwords stored locally
-- 🌐 **HTTPS/TLS 1.3** for all API communication
-- 🛡️ **Certificate pinning** to Ekybot endpoints
-- 📝 **Local processing priority** - agents run locally first
-- 🔍 **Open source** - audit the connector code yourself
-
----
-
-## Scripts
-
-```bash
-# Registration & Setup
-npm run register          # Connect workspace to Ekybot
-npm run setup            # Configure OpenClaw integration
-
-# Service Management
-npm run start            # Start telemetry streaming
-npm run stop             # Stop background service
-npm run restart          # Restart service
-
-# Monitoring
-npm run health           # Check connection status
-npm run test-connection  # Verify API connectivity
-npm run logs             # View service logs
-```
-
----
-
-## Troubleshooting
-
-### Common Issues
-
-**Connection failed:**
-
-```bash
-npm run test-connection
-# Check API key and network connectivity
-```
-
-**Service won't start:**
+### 4) Health check
 
 ```bash
 npm run health
-# Verify OpenClaw is running and accessible
+npm run test-connection
 ```
 
-**High memory usage:**
+### 5) First live validation
+
+From Ekybot UI:
+1. Send `@Odin test`
+2. Send `@Max test`
+3. Verify:
+   - single reply in source channel
+   - no duplicate after poll
+   - reply still visible after reload
+
+If all 3 pass → onboarding complete ✅
+
+---
+
+## Product promise
+
+**OpenClaw = local execution**
+**Ekybot = remote command center**
+**Connector = reliable bridge**
+
+For users, this should feel like: **“Connect once, then chat with my team of agents from anywhere.”**
+
+## Core commands
 
 ```bash
-npm run logs
-# Check for connection loops or errors
+npm run register          # register workspace
+npm run start             # run connector
+npm run stop              # stop connector
+npm run restart           # restart service
+npm run health            # local health checks
+npm run test-connection   # API connectivity
+npm run logs              # inspect logs
 ```
 
-### Getting Help
+## Troubleshooting (fast)
 
-1. **Check logs:** `npm run logs`
-2. **Test connection:** `npm run test-connection`
-3. **Community support:** [Ekybot Discord](https://discord.gg/ekybot)
-4. **Premium support:** Available with Ekybot Pro/Team plans
+### No reply from agent
+
+1. `npm run health`
+2. `npm run test-connection`
+3. `npm run logs`
+4. confirm gateway reachable and token valid
+
+### Duplicate messages
+
+- confirm poll loop is single-instance
+- verify relay idempotency key handling
+- retest with one mention at a time
+
+### UI shows technical infra error
+
+- expected UX: one clean error bubble
+- not expected: raw `520/524` text in user bubble
 
 ---
 
-## Development
+## Docs
 
-### Project Structure
-
-```
-ekybot-connector/
-├── src/
-│   ├── api-client.js      # Ekybot API communication
-│   ├── config-manager.js  # OpenClaw config management
-│   ├── telemetry.js       # Agent monitoring & streaming
-│   └── auth.js           # Token management
-├── scripts/
-│   ├── register.js        # Workspace registration
-│   ├── setup.js          # OpenClaw integration
-│   ├── health.js         # Service health checks
-│   └── test-connection.js # API connectivity test
-├── tests/
-├── package.json
-└── README.md
-```
-
-### Contributing
-
-1. Fork this repository
-2. Create feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit changes (`git commit -m 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing-feature`)
-5. Open Pull Request
-
----
-
-## License
-
-MIT License - see [LICENSE](LICENSE) file.
-
-Feel free to use this connector in your projects, commercial or otherwise.
-
----
+- `docs/onboarding.md`
+- `docs/architecture.md`
+- `docs/migration-v1-v2.md`
 
 ## Links
 
-- 🌐 **Ekybot Platform:** [ekybot.com](https://ekybot.com)
-- 📱 **Mobile Apps:** [iOS](https://apps.apple.com/app/ekybot) | [Android](https://play.google.com/store/apps/details?id=com.ekybot.app)
-- 📚 **Documentation:** [docs.ekybot.com](https://docs.ekybot.com)
-- 💬 **Discord Community:** [discord.gg/ekybot](https://discord.gg/ekybot)
-- 🐛 **Issues:** [GitHub Issues](https://github.com/regiomag/ekybot-connector/issues)
-
----
-
-**Transform your local OpenClaw setup into a professional AI agent operation.**
-
-**OpenClaw = Local Power • Ekybot = Remote Control • This Connector = The Bridge**
+- Ekybot: https://www.ekybot.com
+- ClawHub listing: https://clawhub.ai/regiomag/ekybot-connector
+- Source: https://github.com/regiomag/ekybot-connector
