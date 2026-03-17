@@ -43,7 +43,11 @@ async function reconcileCompanionState() {
     machineName: state.machineName,
   });
   const executor = new EkybotCompanionExecutor(apiClient, configManager, stateStore);
-  const relayProcessor = new EkybotCompanionRelayProcessor(apiClient, new OpenClawGatewayClient());
+  const relayProcessor = new EkybotCompanionRelayProcessor(apiClient, new OpenClawGatewayClient(), {
+    stateStore,
+    inventoryCollector,
+    machineId: state.machineId,
+  });
 
   const buildHeartbeat = (runtimeState, pendingOperationCount) => {
     const heartbeat = inventoryCollector.toHeartbeatPayload(state.machineId);
@@ -64,6 +68,7 @@ async function reconcileCompanionState() {
     state.machineId,
     buildHeartbeat(
       {
+        activeRequests: runtimeBefore.activeRequests,
         lastDesiredSyncAt: runtimeBefore.lastDesiredSyncAt,
         lastInventoryUploadedAt: runtimeBefore.lastInventoryUploadedAt,
         lastApplyStartedAt: runtimeBefore.lastApplyStartedAt,
@@ -116,6 +121,7 @@ async function reconcileCompanionState() {
     state.machineId,
     buildHeartbeat(
       {
+        activeRequests: finalState.activeRequests,
         lastDesiredSyncAt: finalState.lastDesiredSyncAt,
         lastInventoryUploadedAt: finalState.lastInventoryUploadedAt,
         lastApplyStartedAt: finalState.lastApplyStartedAt,

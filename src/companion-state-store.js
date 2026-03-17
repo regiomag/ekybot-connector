@@ -104,6 +104,40 @@ class EkybotCompanionStateStore {
     });
   }
 
+  upsertActiveRequest(request) {
+    if (!request?.requestId) {
+      return;
+    }
+
+    this.merge((current) => {
+      const activeRequests = Array.isArray(current.activeRequests) ? current.activeRequests : [];
+      const nextEntry = {
+        ...activeRequests.find((entry) => entry.requestId === request.requestId),
+        ...request,
+        lastHeartbeatAt: request.lastHeartbeatAt || new Date().toISOString(),
+      };
+
+      return {
+        activeRequests: [
+          ...activeRequests.filter((entry) => entry.requestId !== request.requestId),
+          nextEntry,
+        ],
+      };
+    });
+  }
+
+  clearActiveRequest(requestId) {
+    if (!requestId) {
+      return;
+    }
+
+    this.merge((current) => ({
+      activeRequests: (Array.isArray(current.activeRequests) ? current.activeRequests : []).filter(
+        (entry) => entry.requestId !== requestId
+      ),
+    }));
+  }
+
   clear() {
     if (fs.existsSync(this.filePath)) {
       fs.unlinkSync(this.filePath);

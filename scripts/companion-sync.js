@@ -41,6 +41,7 @@ async function syncCompanionInventory() {
   const heartbeat = inventoryCollector.toHeartbeatPayload(state.machineId);
   const inventory = inventoryCollector.toMachineInventoryPayload(state.machineId);
   heartbeat.runtimeState = buildCompanionRuntimeState({
+    activeRequests: refreshedState.activeRequests,
     lastDesiredSyncAt: refreshedState.lastDesiredSyncAt,
     lastInventoryUploadedAt: syncStartedAt,
     lastApplyStartedAt: refreshedState.lastApplyStartedAt,

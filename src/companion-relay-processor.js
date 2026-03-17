@@ -7,9 +7,34 @@ function normalizeChannelKey(value) {
 }
 
 class EkybotCompanionRelayProcessor {
-  constructor(apiClient, gatewayClient) {
+  constructor(apiClient, gatewayClient, options = {}) {
     this.apiClient = apiClient;
     this.gatewayClient = gatewayClient;
+    this.stateStore = options.stateStore || null;
+    this.inventoryCollector = options.inventoryCollector || null;
+    this.machineId = options.machineId || null;
+  }
+
+  currentHeartbeatTimestamp() {
+    return new Date().toISOString();
+  }
+
+  async sendRuntimeHeartbeat() {
+    if (!this.machineId || !this.inventoryCollector || !this.stateStore) {
+      return;
+    }
+
+    const currentState = this.stateStore.load() || {};
+    const heartbeat = this.inventoryCollector.toHeartbeatPayload(this.machineId);
+    heartbeat.runtimeState = {
+      activeRequests: Array.isArray(currentState.activeRequests) ? currentState.activeRequests : [],
+    };
+
+    try {
+      await this.apiClient.sendHeartbeat(this.machineId, heartbeat);
+    } catch (_error) {
+      // Best-effort status update only.
+    }
   }
 
   buildRelayPrompt(notification) {
@@ -97,10 +122,28 @@ class EkybotCompanionRelayProcessor {
       )
     );
 
+    this.stateStore?.upsertActiveRequest({
+      requestId: notification.id,
+      channelKey: sourceChannel,
+      agentName: target.name || targetAgentId,
+      stage: 'claimed',
+      lastHeartbeatAt: this.currentHeartbeatTimestamp(),
+    });
+    await this.sendRuntimeHeartbeat();
+
     await this.apiClient.updateRelayNotifications(machineId, {
       notificationIds: [notification.id],
       status: 'in_progress',
     });
+
+    this.stateStore?.upsertActiveRequest({
+      requestId: notification.id,
+      channelKey: sourceChannel,
+      agentName: target.name || targetAgentId,
+      stage: 'running',
+      lastHeartbeatAt: this.currentHeartbeatTimestamp(),
+    });
+    await this.sendRuntimeHeartbeat();
 
     const gatewayResult = await this.gatewayClient.sendRelayPrompt({
       agentId: targetAgentId,
@@ -111,6 +154,15 @@ class EkybotCompanionRelayProcessor {
 
     const cleanedReply = this.cleanReply(gatewayResult.content);
     if (cleanedReply) {
+      this.stateStore?.upsertActiveRequest({
+        requestId: notification.id,
+        channelKey: sourceChannel,
+        agentName: target.name || targetAgentId,
+        stage: 'publishing',
+        lastHeartbeatAt: this.currentHeartbeatTimestamp(),
+      });
+      await this.sendRuntimeHeartbeat();
+
       await this.apiClient.postRelayMessage(machineId, {
         notificationId: notification.id,
         channelKey: sourceChannel,
@@ -124,6 +176,9 @@ class EkybotCompanionRelayProcessor {
       notificationIds: [notification.id],
       status: 'delivered',
     });
+
+    this.stateStore?.clearActiveRequest(notification.id);
+    await this.sendRuntimeHeartbeat();
 
     return {
       delivered: true,
@@ -179,6 +234,9 @@ class EkybotCompanionRelayProcessor {
           const ackMessage = ackError instanceof Error ? ackError.message : String(ackError);
           console.warn(chalk.yellow(`! relay failure ack failed ${notification?.id || 'unknown'}: ${ackMessage}`));
         }
+
+        this.stateStore?.clearActiveRequest(notification?.id);
+        await this.sendRuntimeHeartbeat();
       }
     }
 
