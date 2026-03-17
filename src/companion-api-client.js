@@ -15,18 +15,20 @@ class EkybotCompanionApiClient {
       options.registrationToken || process.env.EKYBOT_COMPANION_REGISTRATION_TOKEN || null;
   }
 
-  buildHeaders(extraHeaders = {}) {
+  buildHeaders(extraHeaders = {}, authModeOverride = null) {
     const headers = {
       'Content-Type': 'application/json',
       'User-Agent': this.userAgent,
       ...extraHeaders,
     };
 
-    if (this.machineApiKey) {
+    const authMode = authModeOverride || this.getAuthMode();
+
+    if (authMode === 'machine_api_key' && this.machineApiKey) {
       headers['x-companion-api-key'] = this.machineApiKey;
-    } else if (this.registrationToken) {
+    } else if (authMode === 'registration_token' && this.registrationToken) {
       headers['x-companion-registration-token'] = this.registrationToken;
-    } else if (this.userBearerToken) {
+    } else if (authMode === 'user_bearer_token' && this.userBearerToken) {
       headers.Authorization = `Bearer ${this.userBearerToken}`;
     }
 
@@ -46,10 +48,10 @@ class EkybotCompanionApiClient {
     return 'anonymous';
   }
 
-  async request(method, pathname, data = null, extraHeaders = {}) {
+  async request(method, pathname, data = null, extraHeaders = {}, authModeOverride = null) {
     const response = await fetchImpl(`${this.baseUrl}${pathname}`, {
       method,
-      headers: this.buildHeaders(extraHeaders),
+      headers: this.buildHeaders(extraHeaders, authModeOverride),
       body: data ? JSON.stringify(data) : undefined,
       timeout: 30000,
     });
@@ -91,7 +93,8 @@ class EkybotCompanionApiClient {
   }
 
   async registerMachine(registration) {
-    return this.request('POST', '/api/companion/machines', registration);
+    const authMode = this.registrationToken ? 'registration_token' : this.getAuthMode();
+    return this.request('POST', '/api/companion/machines', registration, {}, authMode);
   }
 
   async listMachines() {
