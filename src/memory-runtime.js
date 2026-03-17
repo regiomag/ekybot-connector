@@ -51,6 +51,26 @@ function slugifyProjectKey(value) {
     .replace(/^-+|-+$/g, '');
 }
 
+function listProjectDirectories(projectsRoot) {
+  if (!fs.existsSync(projectsRoot)) {
+    return [];
+  }
+
+  return fs
+    .readdirSync(projectsRoot)
+    .map((entry) => ({
+      entry,
+      fullPath: path.join(projectsRoot, entry),
+    }))
+    .filter(({ fullPath }) => {
+      try {
+        return fs.statSync(fullPath).isDirectory();
+      } catch {
+        return false;
+      }
+    });
+}
+
 function listNewestFiles(dirPath, { suffix, limit = 3 } = {}) {
   if (!fs.existsSync(dirPath)) {
     return [];
@@ -87,23 +107,49 @@ class OpenClawMemoryRuntime {
   }
 
   getProjectMemoryPath(workspacePath, projectKey) {
-    if (!projectKey) {
-      return null;
-    }
-
     const memoryRoot = this.getMemoryRoot(workspacePath);
+    const projectsRoot = path.join(memoryRoot, 'projects');
+    const projectDirs = listProjectDirectories(projectsRoot);
+    const workspaceHints = [
+      path.basename(workspacePath),
+      path.basename(path.dirname(workspacePath)),
+    ]
+      .map((value) => slugifyProjectKey(value))
+      .filter(Boolean);
     const candidates = Array.from(
-      new Set([String(projectKey).trim(), slugifyProjectKey(projectKey)].filter(Boolean))
+      new Set(
+        [projectKey ? String(projectKey).trim() : null, projectKey ? slugifyProjectKey(projectKey) : null, ...workspaceHints].filter(
+          Boolean
+        )
+      )
     );
 
     for (const candidate of candidates) {
-      const fullPath = path.join(memoryRoot, 'projects', candidate);
+      const fullPath = path.join(projectsRoot, candidate);
       if (fs.existsSync(fullPath)) {
         return fullPath;
       }
     }
 
-    return path.join(memoryRoot, 'projects', candidates[0] || String(projectKey).trim());
+    if (projectDirs.length === 1) {
+      return projectDirs[0].fullPath;
+    }
+
+    if (candidates.length > 0) {
+      const fuzzyMatch = projectDirs.find(({ entry }) => {
+        const slug = slugifyProjectKey(entry);
+        return candidates.some((candidate) => slug.includes(candidate) || candidate.includes(slug));
+      });
+      if (fuzzyMatch) {
+        return fuzzyMatch.fullPath;
+      }
+    }
+
+    if (!projectKey || candidates.length === 0) {
+      return null;
+    }
+
+    return path.join(projectsRoot, candidates[0]);
   }
 
   collectActiveSources({ workspacePath, projectKey }) {
