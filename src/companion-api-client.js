@@ -77,6 +77,10 @@ class EkybotCompanionApiClient {
     return this.request('GET', `/api/companion/machines/${machineId}/desired-state`);
   }
 
+  async syncMachineMemory(machineId, payload) {
+    return this.request('POST', `/api/companion/machines/${machineId}/memory`, payload);
+  }
+
   async fetchRelayNotifications(machineId, { limit = 20 } = {}) {
     return this.request(
       'GET',

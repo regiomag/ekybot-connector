@@ -7,6 +7,7 @@ const {
   EkybotCompanionStateStore,
   OpenClawConfigManager,
   OpenClawInventoryCollector,
+  OpenClawMemoryRuntime,
 } = require('../src');
 const { buildCompanionRuntimeState } = require('../src/companion-runtime-state');
 
@@ -30,6 +31,7 @@ async function syncCompanionInventory() {
   const inventoryCollector = new OpenClawInventoryCollector(configManager, {
     machineName: state.machineName,
   });
+  const memoryRuntime = new OpenClawMemoryRuntime(configManager);
 
   const apiClient = new EkybotCompanionApiClient({
     baseUrl: state.baseUrl,
@@ -57,6 +59,8 @@ async function syncCompanionInventory() {
   let heartbeatResult;
   let inventoryResult;
   let desiredState;
+  let memorySyncResult = null;
+  const memoryPayload = memoryRuntime.buildMachineMemorySyncPayload();
 
   try {
     heartbeatResult = await apiClient.sendHeartbeat(state.machineId, heartbeat);
@@ -70,6 +74,17 @@ async function syncCompanionInventory() {
   } catch (error) {
     console.error(chalk.red(`Inventory payload: ${JSON.stringify(inventory, null, 2)}`));
     throw error;
+  }
+
+  if (Array.isArray(memoryPayload.agents) && memoryPayload.agents.length > 0) {
+    try {
+      memorySyncResult = await apiClient.syncMachineMemory(state.machineId, memoryPayload);
+    } catch (error) {
+      console.error(
+        chalk.red(`Memory sync payload: ${JSON.stringify(memoryPayload, null, 2)}`)
+      );
+      throw error;
+    }
   }
 
   desiredState = await apiClient.fetchDesiredState(state.machineId);
@@ -97,6 +112,18 @@ async function syncCompanionInventory() {
       `Inventory snapshot: ${inventoryResult.inventory?.id || 'created'} | Agents: ${inventory.agents.length}`
     )
   );
+  if (memorySyncResult) {
+    const syncedAgents = Array.isArray(memorySyncResult.results)
+      ? memorySyncResult.results.filter((entry) => entry.synced).length
+      : 0;
+    console.log(
+      chalk.green(
+        `✓ Memory runtime synced (${syncedAgents}/${memoryPayload.agents.length} agents)`
+      )
+    );
+  } else {
+    console.log(chalk.gray('Memory runtime sync skipped (no eligible agent artifacts)'));
+  }
   console.log(
     chalk.blue(
       `Desired state received: ${(desiredState.desiredState?.agents || []).length} managed agents, ${(desiredState.pendingOperations || []).length} pending operations`
