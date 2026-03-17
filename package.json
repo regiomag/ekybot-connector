@@ -44,6 +44,7 @@
     "register": "node scripts/register.js",
     "companion:register": "node scripts/companion-register.js",
     "companion:sync": "node scripts/companion-sync.js",
+    "companion:memory-check": "node scripts/companion-memory-check.js",
     "companion:apply": "node scripts/companion-apply.js",
     "companion:reconcile": "node scripts/companion-reconcile.js",
     "companion:daemon": "node scripts/companion-daemon.js",
