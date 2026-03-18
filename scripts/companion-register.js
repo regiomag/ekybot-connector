@@ -18,9 +18,20 @@ async function registerCompanion() {
   const stateStore = new EkybotCompanionStateStore();
   const existingState = stateStore.load();
 
+  const forceRegister = String(process.env.EKYBOT_COMPANION_FORCE_REGISTER || '').toLowerCase();
+  const shouldForceRegister = ['1', 'true', 'yes', 'y'].includes(forceRegister);
+
   if (existingState?.machineId) {
     console.log(chalk.yellow('⚠️  A companion machine is already registered.'));
     console.log(chalk.gray(`Machine ID: ${existingState.machineId}`));
+
+    if (!shouldForceRegister) {
+      console.log(chalk.green('\n✅ Registration already satisfied (idempotent skip)'));
+      console.log(chalk.gray('Set EKYBOT_COMPANION_FORCE_REGISTER=1 to force re-registration.'));
+      return;
+    }
+
+    console.log(chalk.blue('Force mode enabled: re-registering machine...'));
   }
 
   const defaults = {
