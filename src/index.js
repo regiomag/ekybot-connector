@@ -9,6 +9,7 @@ const OpenClawInventoryCollector = require('./companion-inventory');
 const OpenClawConfigManager = require('./config-manager');
 const OpenClawGatewayClient = require('./openclaw-gateway-client');
 const EkybotCompanionRelayProcessor = require('./companion-relay-processor');
+const OpenClawMemoryRuntime = require('./memory-runtime');
 const TelemetryCollector = require('./telemetry');
 
 module.exports = {
@@ -20,5 +21,6 @@ module.exports = {
   OpenClawConfigManager,
   OpenClawGatewayClient,
   EkybotCompanionRelayProcessor,
+  OpenClawMemoryRuntime,
   TelemetryCollector,
 };

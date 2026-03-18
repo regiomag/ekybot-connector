@@ -15,46 +15,86 @@ class EkybotCompanionApiClient {
       options.registrationToken || process.env.EKYBOT_COMPANION_REGISTRATION_TOKEN || null;
   }
 
-  buildHeaders(extraHeaders = {}) {
+  buildHeaders(extraHeaders = {}, authModeOverride = null) {
     const headers = {
       'Content-Type': 'application/json',
       'User-Agent': this.userAgent,
       ...extraHeaders,
     };
 
-    if (this.machineApiKey) {
+    const authMode = authModeOverride || this.getAuthMode();
+
+    if (authMode === 'machine_api_key' && this.machineApiKey) {
       headers['x-companion-api-key'] = this.machineApiKey;
-    } else if (this.registrationToken) {
+    } else if (authMode === 'registration_token' && this.registrationToken) {
       headers['x-companion-registration-token'] = this.registrationToken;
-    } else if (this.userBearerToken) {
+    } else if (authMode === 'user_bearer_token' && this.userBearerToken) {
       headers.Authorization = `Bearer ${this.userBearerToken}`;
     }
 
     return headers;
   }
 
-  async request(method, pathname, data = null, extraHeaders = {}) {
+  getAuthMode() {
+    if (this.machineApiKey) {
+      return 'machine_api_key';
+    }
+    if (this.registrationToken) {
+      return 'registration_token';
+    }
+    if (this.userBearerToken) {
+      return 'user_bearer_token';
+    }
+    return 'anonymous';
+  }
+
+  async request(method, pathname, data = null, extraHeaders = {}, authModeOverride = null) {
     const response = await fetchImpl(`${this.baseUrl}${pathname}`, {
       method,
-      headers: this.buildHeaders(extraHeaders),
+      headers: this.buildHeaders(extraHeaders, authModeOverride),
       body: data ? JSON.stringify(data) : undefined,
       timeout: 30000,
     });
 
     const rawText = await response.text();
-    const payload = rawText ? JSON.parse(rawText) : null;
+    const contentType = response.headers.get('content-type') || '';
+    const isJson = contentType.toLowerCase().includes('application/json');
+    let payload = null;
+    if (rawText && isJson) {
+      try {
+        payload = JSON.parse(rawText);
+      } catch (error) {
+        throw new Error(
+          `Companion API request failed on ${method} ${pathname}: invalid JSON response (${contentType})`
+        );
+      }
+    }
 
     if (!response.ok) {
+      if (!isJson) {
+        const preview = rawText.replace(/\s+/g, ' ').slice(0, 160);
+        throw new Error(
+          `Companion API request failed on ${method} ${pathname}: ${response.status} ${response.statusText} (content-type: ${contentType || 'unknown'}, auth: ${this.getAuthMode()}, body: ${preview})`
+        );
+      }
       const message = payload?.error || payload?.message || `${response.status} ${response.statusText}`;
       const details = payload?.details ? ` | details: ${JSON.stringify(payload.details)}` : '';
       throw new Error(`Companion API request failed on ${method} ${pathname}: ${message}${details}`);
+    }
+
+    if (rawText && !isJson) {
+      const preview = rawText.replace(/\s+/g, ' ').slice(0, 160);
+      throw new Error(
+        `Companion API request failed on ${method} ${pathname}: expected JSON but received ${contentType || 'unknown'} (auth: ${this.getAuthMode()}, body: ${preview})`
+      );
     }
 
     return payload;
   }
 
   async registerMachine(registration) {
-    return this.request('POST', '/api/companion/machines', registration);
+    const authMode = this.registrationToken ? 'registration_token' : this.getAuthMode();
+    return this.request('POST', '/api/companion/machines', registration, {}, authMode);
   }
 
   async listMachines() {
@@ -75,6 +115,10 @@ class EkybotCompanionApiClient {
 
   async fetchDesiredState(machineId) {
     return this.request('GET', `/api/companion/machines/${machineId}/desired-state`);
+  }
+
+  async syncMachineMemory(machineId, payload) {
+    return this.request('POST', `/api/companion/machines/${machineId}/memory`, payload);
   }
 
   async fetchRelayNotifications(machineId, { limit = 20 } = {}) {
