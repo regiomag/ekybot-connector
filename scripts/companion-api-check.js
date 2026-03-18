@@ -34,6 +34,12 @@ async function main() {
         `machines visible = ${Array.isArray(result?.machines) ? result.machines.length : 0}`
       )
     );
+    return {
+      success: true,
+      baseUrl,
+      authMode: apiClient.getAuthMode(),
+      machineCount: Array.isArray(result?.machines) ? result.machines.length : 0,
+    };
   } catch (error) {
     console.error(chalk.red(`✗ GET /api/companion/machines failed: ${error.message}`));
     process.exit(1);
@@ -46,3 +52,5 @@ if (require.main === module) {
     process.exit(1);
   });
 }
+
+module.exports = main;

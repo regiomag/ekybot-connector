@@ -119,6 +119,13 @@ async function registerCompanion() {
   console.log(chalk.gray(`Machine ID: ${machine.id}`));
   console.log(chalk.gray(`State file: ${stateStore.filePath}`));
   console.log(chalk.blue('\nNext step: run "npm run companion:sync" to send heartbeat and inventory.'));
+
+  return {
+    machineId: machine.id,
+    machineName: machine.machineName,
+    stateFilePath: stateStore.filePath,
+    baseUrl: answers.baseUrl,
+  };
 }
 
 if (require.main === module) {
