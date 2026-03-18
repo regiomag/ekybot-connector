@@ -11,36 +11,46 @@ Bridge your local OpenClaw gateway to Ekybot so users can chat with agents from 
 
 ## 5-minute onboarding
 
-### 1) Install + configure
+### 1) Install
 
 ```bash
 git clone https://github.com/regiomag/ekybot-connector.git
 cd ekybot-connector
 npm install
-cp .env.example .env
-# fill EKYBOT_API_KEY + endpoint values
 ```
 
-### 2) Register workspace
+### 2) Generate a Companion enrollment token
+
+From [EkyBot Companion](https://www.ekybot.com/companion), create a temporary enrollment token.
+
+### 3) Connect the machine
 
 ```bash
-npm run register
+export EKYBOT_APP_URL="https://www.ekybot.com"
+export EKYBOT_COMPANION_REGISTRATION_TOKEN="ekrt_..."
+npm run companion:connect
 ```
 
-### 3) Start connector
+### 4) Run the doctor
+
+```bash
+npm run companion:doctor
+```
+
+### 5) Optional local checks
+
+```bash
+npm run companion:api-check
+npm run companion:memory-check
+```
+
+### 6) Start connector
 
 ```bash
 npm run start
 ```
 
-### 4) Health check
-
-```bash
-npm run health
-npm run test-connection
-```
-
-### 5) First live validation
+### 7) First live validation
 
 From Ekybot UI:
 1. Send `@Odin test`
@@ -65,7 +75,12 @@ For users, this should feel like: **“Connect once, then chat with my team of a
 ## Core commands
 
 ```bash
-npm run register          # register workspace
+npm run companion:connect # enroll a machine from a temporary token
+npm run companion:doctor  # verify local state + API access
+npm run companion:api-check
+npm run companion:memory-check
+npm run companion:disconnect
+npm run register          # legacy workspace registration
 npm run start             # run connector
 npm run stop              # stop connector
 npm run restart           # restart service

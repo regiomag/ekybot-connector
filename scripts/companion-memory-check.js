@@ -22,6 +22,8 @@ function main() {
       console.log(`- ${file.filename}`);
     }
   }
+
+  return payload;
 }
 
 if (require.main === module) {
@@ -32,3 +34,5 @@ if (require.main === module) {
     process.exit(1);
   }
 }
+
+module.exports = main;

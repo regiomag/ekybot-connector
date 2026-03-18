@@ -129,6 +129,18 @@ async function syncCompanionInventory() {
       `Desired state received: ${(desiredState.desiredState?.agents || []).length} managed agents, ${(desiredState.pendingOperations || []).length} pending operations`
     )
   );
+
+  return {
+    success: true,
+    machineId: state.machineId,
+    syncedAgents: inventory.agents.length,
+    memorySyncedAgents: memorySyncResult
+      ? Array.isArray(memorySyncResult.results)
+        ? memorySyncResult.results.filter((entry) => entry.synced).length
+        : 0
+      : 0,
+    pendingOperationCount: (desiredState.pendingOperations || []).length,
+  };
 }
 
 if (require.main === module) {
