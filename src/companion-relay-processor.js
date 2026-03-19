@@ -1,6 +1,12 @@
 const chalk = require('chalk');
 
 const SENTINEL_REPLIES = ['NO_REPLY', 'HEARTBEAT_OK', 'ANNOUNCE_SKIP'];
+const DEFAULT_RELAY_ATTEMPTS = 2;
+const DEFAULT_RELAY_RETRY_DELAY_MS = 1_000;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function normalizeChannelKey(value) {
   return typeof value === 'string' && value.trim() ? value.trim().toLowerCase() : null;
@@ -101,6 +107,77 @@ class EkybotCompanionRelayProcessor {
       .trim();
   }
 
+  relayAttemptCount() {
+    const raw = Number.parseInt(process.env.EKYBOT_COMPANION_RELAY_ATTEMPTS || '', 10);
+    return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_RELAY_ATTEMPTS;
+  }
+
+  relayRetryDelayMs() {
+    const raw = Number.parseInt(process.env.EKYBOT_COMPANION_RELAY_RETRY_DELAY_MS || '', 10);
+    return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_RELAY_RETRY_DELAY_MS;
+  }
+
+  relayHardTimeoutMs() {
+    const raw = Number.parseInt(process.env.EKYBOT_COMPANION_RELAY_HARD_TIMEOUT_MS || '', 10);
+    if (Number.isFinite(raw) && raw > 0) {
+      return raw;
+    }
+    const clientTimeout = Number.parseInt(this.gatewayClient?.timeoutMs || '', 10);
+    return Number.isFinite(clientTimeout) && clientTimeout > 0 ? clientTimeout + 5_000 : 65_000;
+  }
+
+  async sendRelayPromptWithRetry(params) {
+    const maxAttempts = this.relayAttemptCount();
+    const retryDelayMs = this.relayRetryDelayMs();
+    const hardTimeoutMs = this.relayHardTimeoutMs();
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        console.log(
+          chalk.gray(
+            `[relay] ${params.notificationId} dispatch attempt ${attempt}/${maxAttempts} session=${params.sessionKey}`
+          )
+        );
+
+        const gatewayResult = await Promise.race([
+          this.gatewayClient.sendRelayPrompt({
+            agentId: params.agentId,
+            sessionKey: params.sessionKey,
+            prompt: params.prompt,
+            model: params.model,
+          }),
+          new Promise((_, reject) =>
+            setTimeout(
+              () => reject(new Error(`Relay hard-timeout after ${hardTimeoutMs}ms`)),
+              hardTimeoutMs
+            )
+          ),
+        ]);
+
+        console.log(
+          chalk.gray(
+            `[relay] ${params.notificationId} dispatch attempt ${attempt}/${maxAttempts} completed replyChars=${String(gatewayResult?.content || '').length}`
+          )
+        );
+        return gatewayResult;
+      } catch (error) {
+        lastError = error;
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(
+          chalk.yellow(
+            `! relay dispatch attempt ${attempt}/${maxAttempts} failed ${params.notificationId}: ${message}`
+          )
+        );
+        if (attempt < maxAttempts) {
+          await sleep(retryDelayMs);
+        }
+      }
+    }
+
+    throw lastError || new Error('Relay dispatch failed');
+  }
+
   async processNotification(machineId, notification) {
     const relay = notification?.relay || {};
     const target = relay.target || {};
@@ -148,7 +225,8 @@ class EkybotCompanionRelayProcessor {
     });
     await this.sendRuntimeHeartbeat();
 
-    const gatewayResult = await this.gatewayClient.sendRelayPrompt({
+    const gatewayResult = await this.sendRelayPromptWithRetry({
+      notificationId: notification.id,
       agentId: targetAgentId,
       sessionKey,
       prompt,
