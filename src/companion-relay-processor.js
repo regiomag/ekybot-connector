@@ -111,7 +111,10 @@ class EkybotCompanionRelayProcessor {
 
     const type = relay.type || 'agent_notification';
     const sourceChannel = normalizeChannelKey(relay?.source?.channelKey) || normalizeChannelKey(notification?.threadId) || 'general';
-    const targetChannel = normalizeChannelKey(target.channelKey) || targetAgentId || sourceChannel || 'general';
+    const targetChannel =
+      type === 'channel_dispatch'
+        ? sourceChannel
+        : normalizeChannelKey(target.channelKey) || targetAgentId || sourceChannel || 'general';
     const sessionKey = `agent:${targetAgentId}:ekybot:${targetChannel}`;
     const prompt = this.buildRelayPrompt(notification);
     const targetModel = typeof target.model === 'string' && target.model.trim() ? target.model.trim() : null;
