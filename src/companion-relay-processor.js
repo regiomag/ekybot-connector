@@ -191,7 +191,7 @@ class EkybotCompanionRelayProcessor {
     const targetChannel =
       type === 'channel_dispatch'
         ? sourceChannel
-        : normalizeChannelKey(target.channelKey) || targetAgentId || sourceChannel || 'general';
+        : normalizeChannelKey(target.channelKey) || sourceChannel || targetAgentId || 'general';
     const sessionKey = `agent:${targetAgentId}:ekybot:${targetChannel}`;
     const prompt = this.buildRelayPrompt(notification);
     const targetModel = typeof target.model === 'string' && target.model.trim() ? target.model.trim() : null;
@@ -299,7 +299,7 @@ class EkybotCompanionRelayProcessor {
         const relay = notification?.relay || {};
         const sourceChannel = normalizeChannelKey(relay?.source?.channelKey) || normalizeChannelKey(notification?.threadId) || 'general';
         const targetAgentId = relay?.target?.agentId || notification?.toAgentId || 'unknown';
-        const targetChannel = normalizeChannelKey(relay?.target?.channelKey) || targetAgentId || sourceChannel || 'general';
+        const targetChannel = normalizeChannelKey(relay?.target?.channelKey) || sourceChannel || targetAgentId || 'general';
         console.warn(
           chalk.yellow(
             `! relay failed ${notification?.id || 'unknown'} ${(relay?.type || 'agent_notification')} source=#${sourceChannel} targetAgent=${targetAgentId} targetChannel=#${targetChannel}: ${message}`
