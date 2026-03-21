@@ -3,6 +3,7 @@ const {
   DEFAULT_RELAY_HARD_TIMEOUT_MS,
   RELAY_PUBLISH_GRACE_MS,
   resolveRelayTimeout,
+  resolveRelayLifecyclePolicy,
 } = require('./relay-continuity');
 
 const SENTINEL_REPLIES = ['NO_REPLY', 'HEARTBEAT_OK', 'ANNOUNCE_SKIP'];
@@ -150,11 +151,15 @@ class EkybotCompanionRelayProcessor {
     if (Number.isFinite(raw) && raw > 0) {
       return raw;
     }
+
+    const lifecycle = resolveRelayLifecyclePolicy();
+    const lifecycleFailedWithGrace = lifecycle.failedMs + RELAY_PUBLISH_GRACE_MS;
     const clientTimeout = Number.parseInt(this.gatewayClient?.timeoutMs || '', 10);
     if (Number.isFinite(clientTimeout) && clientTimeout > 0) {
-      return clientTimeout + RELAY_PUBLISH_GRACE_MS;
+      return Math.min(clientTimeout + RELAY_PUBLISH_GRACE_MS, lifecycleFailedWithGrace);
     }
-    return resolveRelayTimeout(null, DEFAULT_RELAY_HARD_TIMEOUT_MS);
+
+    return resolveRelayTimeout(null, Math.max(DEFAULT_RELAY_HARD_TIMEOUT_MS, lifecycleFailedWithGrace));
   }
 
   async sendRelayPromptWithRetry(params) {
