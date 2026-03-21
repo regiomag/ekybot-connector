@@ -1,19 +1,16 @@
-const RELAY_FAILED_AFTER_MS = 900_000;
 const RELAY_PUBLISH_GRACE_MS = 5_000;
-const MIN_RELAY_HARD_TIMEOUT_MS = RELAY_FAILED_AFTER_MS + RELAY_PUBLISH_GRACE_MS;
+const DEFAULT_RELAY_HARD_TIMEOUT_MS = 65_000;
 
-function enforceRelayTimeoutFloor(timeoutMs) {
+function resolveRelayTimeout(timeoutMs, fallbackMs = DEFAULT_RELAY_HARD_TIMEOUT_MS) {
   const parsed = Number.parseInt(timeoutMs, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return MIN_RELAY_HARD_TIMEOUT_MS;
+  if (Number.isFinite(parsed) && parsed > 0) {
+    return parsed;
   }
-
-  return Math.max(parsed, MIN_RELAY_HARD_TIMEOUT_MS);
+  return fallbackMs;
 }
 
 module.exports = {
-  RELAY_FAILED_AFTER_MS,
   RELAY_PUBLISH_GRACE_MS,
-  MIN_RELAY_HARD_TIMEOUT_MS,
-  enforceRelayTimeoutFloor,
+  DEFAULT_RELAY_HARD_TIMEOUT_MS,
+  resolveRelayTimeout,
 };

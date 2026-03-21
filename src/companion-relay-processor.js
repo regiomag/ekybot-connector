@@ -1,8 +1,8 @@
 const chalk = require('chalk');
 const {
-  MIN_RELAY_HARD_TIMEOUT_MS,
+  DEFAULT_RELAY_HARD_TIMEOUT_MS,
   RELAY_PUBLISH_GRACE_MS,
-  enforceRelayTimeoutFloor,
+  resolveRelayTimeout,
 } = require('./relay-continuity');
 
 const SENTINEL_REPLIES = ['NO_REPLY', 'HEARTBEAT_OK', 'ANNOUNCE_SKIP'];
@@ -148,13 +148,13 @@ class EkybotCompanionRelayProcessor {
   relayHardTimeoutMs() {
     const raw = Number.parseInt(process.env.EKYBOT_COMPANION_RELAY_HARD_TIMEOUT_MS || '', 10);
     if (Number.isFinite(raw) && raw > 0) {
-      return enforceRelayTimeoutFloor(raw);
+      return raw;
     }
     const clientTimeout = Number.parseInt(this.gatewayClient?.timeoutMs || '', 10);
     if (Number.isFinite(clientTimeout) && clientTimeout > 0) {
-      return enforceRelayTimeoutFloor(clientTimeout + RELAY_PUBLISH_GRACE_MS);
+      return clientTimeout + RELAY_PUBLISH_GRACE_MS;
     }
-    return MIN_RELAY_HARD_TIMEOUT_MS;
+    return resolveRelayTimeout(null, DEFAULT_RELAY_HARD_TIMEOUT_MS);
   }
 
   async sendRelayPromptWithRetry(params) {
