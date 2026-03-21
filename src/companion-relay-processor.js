@@ -51,6 +51,10 @@ function isDeferredAckOnlyReply(content) {
   );
 }
 
+function logContinuityCorrelation(event, payload) {
+  console.log(`[continuity-test] ${event} ${JSON.stringify(payload)}`);
+}
+
 class EkybotCompanionRelayProcessor {
   constructor(apiClient, gatewayClient, options = {}) {
     this.apiClient = apiClient;
@@ -319,6 +323,13 @@ class EkybotCompanionRelayProcessor {
 
     let cleanedReply = this.cleanReply(gatewayResult.content);
     if (isContinuityDelayTest && isDeferredAckOnlyReply(cleanedReply)) {
+      logContinuityCorrelation('deferred_ack_detected', {
+        requestId,
+        notificationId: notification.id,
+        sessionKey,
+        sourceChannel,
+        targetAgentId,
+      });
       this.stateStore?.upsertActiveRequest({
         requestId,
         channelKey: sourceChannel,
@@ -339,6 +350,23 @@ class EkybotCompanionRelayProcessor {
       });
 
       cleanedReply = this.cleanReply(followUpResult.content);
+      logContinuityCorrelation('follow_up_completed', {
+        requestId,
+        notificationId: notification.id,
+        sessionKey,
+        sourceChannel,
+        targetAgentId,
+        hasFinalReply: Boolean(cleanedReply),
+      });
+    } else if (isContinuityDelayTest) {
+      logContinuityCorrelation('final_reply_immediate', {
+        requestId,
+        notificationId: notification.id,
+        sessionKey,
+        sourceChannel,
+        targetAgentId,
+        hasFinalReply: Boolean(cleanedReply),
+      });
     }
 
     if (cleanedReply) {
