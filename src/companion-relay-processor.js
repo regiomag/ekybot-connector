@@ -15,6 +15,11 @@ function normalizeChannelKey(value) {
   return typeof value === 'string' && value.trim() ? value.trim().toLowerCase() : null;
 }
 
+function resolveRelayRequestId(notification) {
+  const requestId = notification?.relay?.runtime?.requestId;
+  return typeof requestId === 'string' && requestId.trim() ? requestId.trim() : notification?.id;
+}
+
 class EkybotCompanionRelayProcessor {
   constructor(apiClient, gatewayClient, options = {}) {
     this.apiClient = apiClient;
@@ -187,6 +192,7 @@ class EkybotCompanionRelayProcessor {
   async processNotification(machineId, notification) {
     const relay = notification?.relay || {};
     const target = relay.target || {};
+    const requestId = resolveRelayRequestId(notification);
     const targetAgentId = typeof target.agentId === 'string' ? target.agentId : notification?.toAgentId;
     if (!targetAgentId || targetAgentId === '*') {
       throw new Error('Relay target agent is missing');
@@ -212,7 +218,7 @@ class EkybotCompanionRelayProcessor {
     );
 
     this.stateStore?.upsertActiveRequest({
-      requestId: notification.id,
+      requestId,
       channelKey: sourceChannel,
       agentName: target.name || targetAgentId,
       stage: 'claimed',
@@ -226,7 +232,7 @@ class EkybotCompanionRelayProcessor {
     });
 
     this.stateStore?.upsertActiveRequest({
-      requestId: notification.id,
+      requestId,
       channelKey: sourceChannel,
       agentName: target.name || targetAgentId,
       stage: 'running',
@@ -245,7 +251,7 @@ class EkybotCompanionRelayProcessor {
     const cleanedReply = this.cleanReply(gatewayResult.content);
     if (cleanedReply) {
       this.stateStore?.upsertActiveRequest({
-        requestId: notification.id,
+        requestId,
         channelKey: sourceChannel,
         agentName: target.name || targetAgentId,
         stage: 'publishing',
@@ -267,7 +273,7 @@ class EkybotCompanionRelayProcessor {
       status: 'delivered',
     });
 
-    this.stateStore?.clearActiveRequest(notification.id);
+    this.stateStore?.clearActiveRequest(requestId);
     await this.sendRuntimeHeartbeat();
 
     return {
@@ -328,7 +334,7 @@ class EkybotCompanionRelayProcessor {
           console.warn(chalk.yellow(`! relay failure ack failed ${notification?.id || 'unknown'}: ${ackMessage}`));
         }
 
-        this.stateStore?.clearActiveRequest(notification?.id);
+        this.stateStore?.clearActiveRequest(resolveRelayRequestId(notification));
         await this.sendRuntimeHeartbeat();
       }
     }
