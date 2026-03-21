@@ -76,6 +76,9 @@ describe('EkybotCompanionRelayProcessor', () => {
       fromAgentName: 'Odin',
       relay: {
         type: 'channel_dispatch',
+        runtime: {
+          requestId: 'req-1',
+        },
         source: {
           channelKey: 'support',
           agentName: 'Odin',
@@ -98,7 +101,58 @@ describe('EkybotCompanionRelayProcessor', () => {
       'stage:publishing',
       'postRelayMessage',
       'update:delivered',
-      'clear:notif-1',
+      'clear:req-1',
     ]);
+  });
+
+  it('tracks runtime heartbeats against the correlated requestId instead of notificationId', async () => {
+    const requestIds = [];
+    const cleared = [];
+    const processor = new EkybotCompanionRelayProcessor(
+      {
+        updateRelayNotifications: async () => {},
+        postRelayMessage: async () => {},
+      },
+      {
+        sendRelayPrompt: async () => ({ content: 'Réponse finale' }),
+      },
+      {
+        stateStore: {
+          upsertActiveRequest(request) {
+            requestIds.push(request.requestId);
+          },
+          clearActiveRequest(requestId) {
+            cleared.push(requestId);
+          },
+          load() {
+            return { activeRequests: [] };
+          },
+        },
+      }
+    );
+
+    await processor.processNotification('machine-1', {
+      id: 'notif-9',
+      toAgentId: 'agent-target',
+      threadId: 'support',
+      relay: {
+        type: 'agent_notification',
+        runtime: {
+          requestId: 'req-9',
+        },
+        source: {
+          channelKey: 'support',
+        },
+        target: {
+          agentId: 'agent-target',
+        },
+        message: {
+          content: 'Besoin d une reponse',
+        },
+      },
+    });
+
+    assert.deepEqual(requestIds, ['req-9', 'req-9', 'req-9']);
+    assert.deepEqual(cleared, ['req-9']);
   });
 });
