@@ -15,12 +15,14 @@ Module._load = function patchedLoad(request, parent, isMain) {
 };
 
 const EkybotCompanionRelayProcessor = require('../src/companion-relay-processor');
+const OpenClawGatewayClient = require('../src/openclaw-gateway-client');
 
 const MIN_RELAY_HARD_TIMEOUT_MS = 905_000;
 
 describe('EkybotCompanionRelayProcessor', () => {
   afterEach(() => {
     delete process.env.EKYBOT_COMPANION_RELAY_HARD_TIMEOUT_MS;
+    delete process.env.EKYBOT_COMPANION_RELAY_TIMEOUT_MS;
   });
 
   it('enforces a hard-timeout floor aligned with the 900s continuity contract', () => {
@@ -34,6 +36,13 @@ describe('EkybotCompanionRelayProcessor', () => {
     const processor = new EkybotCompanionRelayProcessor({}, { timeoutMs: 60_000 });
 
     assert.equal(processor.relayHardTimeoutMs(), MIN_RELAY_HARD_TIMEOUT_MS);
+  });
+
+  it('does not allow the gateway client timeout to stay at 60s for long relays', () => {
+    process.env.EKYBOT_COMPANION_RELAY_TIMEOUT_MS = '60000';
+    const client = new OpenClawGatewayClient();
+
+    assert.equal(client.timeoutMs, MIN_RELAY_HARD_TIMEOUT_MS);
   });
 
   it('publishes the relay message before acknowledging delivery', async () => {

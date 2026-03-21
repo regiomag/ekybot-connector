@@ -1,6 +1,7 @@
 const fetchImpl = global.fetch
   ? (...args) => global.fetch(...args)
   : (...args) => require('node-fetch')(...args);
+const { enforceRelayTimeoutFloor } = require('./relay-continuity');
 
 class OpenClawGatewayClient {
   constructor(options = {}) {
@@ -18,7 +19,7 @@ class OpenClawGatewayClient {
       process.env.EKYBOT_GATEWAY_TOKEN ||
       null;
     this.userAgent = options.userAgent || 'ekybot-companion/relay';
-    this.timeoutMs = Number.parseInt(process.env.EKYBOT_COMPANION_RELAY_TIMEOUT_MS || '', 10) || 60_000;
+    this.timeoutMs = enforceRelayTimeoutFloor(process.env.EKYBOT_COMPANION_RELAY_TIMEOUT_MS);
   }
 
   buildHeaders(agentId, sessionKey) {

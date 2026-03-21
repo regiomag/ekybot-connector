@@ -1,11 +1,13 @@
 const chalk = require('chalk');
+const {
+  MIN_RELAY_HARD_TIMEOUT_MS,
+  RELAY_PUBLISH_GRACE_MS,
+  enforceRelayTimeoutFloor,
+} = require('./relay-continuity');
 
 const SENTINEL_REPLIES = ['NO_REPLY', 'HEARTBEAT_OK', 'ANNOUNCE_SKIP'];
 const DEFAULT_RELAY_ATTEMPTS = 2;
 const DEFAULT_RELAY_RETRY_DELAY_MS = 1_000;
-const RELAY_FAILED_AFTER_MS = 900_000;
-const RELAY_PUBLISH_GRACE_MS = 5_000;
-const MIN_RELAY_HARD_TIMEOUT_MS = RELAY_FAILED_AFTER_MS + RELAY_PUBLISH_GRACE_MS;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -128,11 +130,11 @@ class EkybotCompanionRelayProcessor {
   relayHardTimeoutMs() {
     const raw = Number.parseInt(process.env.EKYBOT_COMPANION_RELAY_HARD_TIMEOUT_MS || '', 10);
     if (Number.isFinite(raw) && raw > 0) {
-      return Math.max(raw, MIN_RELAY_HARD_TIMEOUT_MS);
+      return enforceRelayTimeoutFloor(raw);
     }
     const clientTimeout = Number.parseInt(this.gatewayClient?.timeoutMs || '', 10);
     if (Number.isFinite(clientTimeout) && clientTimeout > 0) {
-      return Math.max(clientTimeout + RELAY_PUBLISH_GRACE_MS, MIN_RELAY_HARD_TIMEOUT_MS);
+      return enforceRelayTimeoutFloor(clientTimeout + RELAY_PUBLISH_GRACE_MS);
     }
     return MIN_RELAY_HARD_TIMEOUT_MS;
   }
