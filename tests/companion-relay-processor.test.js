@@ -194,6 +194,7 @@ describe('EkybotCompanionRelayProcessor', () => {
   it('publishes the first available reply immediately even for the continuity test marker', async () => {
     const posted = [];
     const prompts = [];
+    const sessionKeys = [];
     const processor = new EkybotCompanionRelayProcessor(
       {
         updateRelayNotifications: async () => {},
@@ -202,8 +203,9 @@ describe('EkybotCompanionRelayProcessor', () => {
         },
       },
       {
-        sendRelayPrompt: async ({ prompt }) => {
+        sendRelayPrompt: async ({ prompt, sessionKey }) => {
           prompts.push(prompt);
+          sessionKeys.push(sessionKey);
           return {
             content: 'Réponse finale immédiate : voici directement la conclusion utile.',
           };
@@ -244,6 +246,7 @@ describe('EkybotCompanionRelayProcessor', () => {
     });
 
     assert.equal(prompts.length, 1);
+    assert.deepEqual(sessionKeys, ['agent:agent-target:ekybot-relay:support:continuity-test']);
     assert.deepEqual(posted, ['Réponse finale immédiate : voici directement la conclusion utile.']);
   });
 });

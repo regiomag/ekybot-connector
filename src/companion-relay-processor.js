@@ -29,6 +29,11 @@ function logContinuityCorrelation(event, payload) {
   console.log(`[continuity-test] ${event} ${JSON.stringify(payload)}`);
 }
 
+function buildRelaySessionKey({ targetAgentId, targetChannel, isContinuityDelayTest }) {
+  const base = `agent:${targetAgentId}:ekybot-relay:${targetChannel}`;
+  return isContinuityDelayTest ? `${base}:continuity-test` : base;
+}
+
 class EkybotCompanionRelayProcessor {
   constructor(apiClient, gatewayClient, options = {}) {
     this.apiClient = apiClient;
@@ -233,9 +238,11 @@ class EkybotCompanionRelayProcessor {
           ? normalizedTargetChannel
           : sourceChannel || targetAgentId || 'general';
     const isContinuityDelayTest = hasContinuityDelayTestMarker(notification);
-    const sessionKey = isContinuityDelayTest
-      ? `agent:${targetAgentId}:ekybot:${targetChannel}:continuity-test`
-      : `agent:${targetAgentId}:ekybot:${targetChannel}`;
+    const sessionKey = buildRelaySessionKey({
+      targetAgentId,
+      targetChannel,
+      isContinuityDelayTest,
+    });
     const prompt = this.buildRelayPrompt(notification);
     const targetModel = typeof target.model === 'string' && target.model.trim() ? target.model.trim() : null;
 
