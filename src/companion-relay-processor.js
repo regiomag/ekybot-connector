@@ -9,6 +9,7 @@ const SENTINEL_REPLIES = ['NO_REPLY', 'HEARTBEAT_OK', 'ANNOUNCE_SKIP'];
 const DEFAULT_RELAY_ATTEMPTS = 2;
 const DEFAULT_RELAY_RETRY_DELAY_MS = 1_000;
 const CONTINUITY_DELAY_TEST_MARKER = 'TEST_CONTINUITY_DELAY_70';
+const DEFAULT_CONTINUITY_DELAY_FOLLOW_UP_MS = 70_000;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -28,6 +29,28 @@ function hasContinuityDelayTestMarker(notification) {
   return typeof content === 'string' && content.includes(CONTINUITY_DELAY_TEST_MARKER);
 }
 
+function isDeferredAckOnlyReply(content) {
+  const normalized = String(content || '').trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    normalized.includes('test lancé') ||
+    normalized.includes('test lance') ||
+    normalized.includes('test de continuité') ||
+    normalized.includes('test de continuite') ||
+    normalized.includes('message de départ') ||
+    normalized.includes('message de depart') ||
+    normalized.includes('je reviens') ||
+    normalized.includes('dans 70s') ||
+    normalized.includes('dans ~70s') ||
+    normalized.includes('100 secondes') ||
+    normalized.includes('job planifi') ||
+    normalized.includes('message de fin automatique')
+  );
+}
+
 class EkybotCompanionRelayProcessor {
   constructor(apiClient, gatewayClient, options = {}) {
     this.apiClient = apiClient;
@@ -35,6 +58,11 @@ class EkybotCompanionRelayProcessor {
     this.stateStore = options.stateStore || null;
     this.inventoryCollector = options.inventoryCollector || null;
     this.machineId = options.machineId || null;
+    this.sleepFn = options.sleepFn || sleep;
+    this.continuityDelayFollowUpMs =
+      Number.isFinite(Number(options.continuityDelayFollowUpMs)) && Number(options.continuityDelayFollowUpMs) >= 0
+        ? Number(options.continuityDelayFollowUpMs)
+        : DEFAULT_CONTINUITY_DELAY_FOLLOW_UP_MS;
   }
 
   currentHeartbeatTimestamp() {
@@ -209,6 +237,24 @@ class EkybotCompanionRelayProcessor {
     throw lastError || new Error('Relay dispatch failed');
   }
 
+  buildContinuityDelayFollowUpPrompt(notification) {
+    const relay = notification?.relay || {};
+    const target = relay.target || {};
+    const source = relay.source || {};
+    const sourceChannel = normalizeChannelKey(source.channelKey) || normalizeChannelKey(notification.threadId) || 'general';
+    const targetAgentName = target.name || target.agentId || notification?.toAgentId || 'Agent cible';
+
+    return [
+      '[CHANNEL DISPATCH FOLLOW-UP]',
+      `Target agent: ${targetAgentName}`,
+      `Source channel: #${sourceChannel}`,
+      'Le systeme a deja affiche l accuse de reception au demarrage du test.',
+      'Reponds maintenant uniquement avec la conclusion finale utile demandee par l utilisateur.',
+      'Ne redis pas que le test est lance, ne programme rien, ne promets pas un retour plus tard.',
+      'Ta reponse sera republiée automatiquement dans le meme channel visible par l utilisateur.',
+    ].join('\n');
+  }
+
   async processNotification(machineId, notification) {
     const relay = notification?.relay || {};
     const target = relay.target || {};
@@ -271,7 +317,30 @@ class EkybotCompanionRelayProcessor {
       model: targetModel,
     });
 
-    const cleanedReply = this.cleanReply(gatewayResult.content);
+    let cleanedReply = this.cleanReply(gatewayResult.content);
+    if (isContinuityDelayTest && isDeferredAckOnlyReply(cleanedReply)) {
+      this.stateStore?.upsertActiveRequest({
+        requestId,
+        channelKey: sourceChannel,
+        agentName: target.name || targetAgentId,
+        stage: 'running',
+        lastHeartbeatAt: this.currentHeartbeatTimestamp(),
+      });
+      await this.sendRuntimeHeartbeat();
+
+      await this.sleepFn(this.continuityDelayFollowUpMs);
+
+      const followUpResult = await this.sendRelayPromptWithRetry({
+        notificationId: notification.id,
+        agentId: targetAgentId,
+        sessionKey,
+        prompt: this.buildContinuityDelayFollowUpPrompt(notification),
+        model: targetModel,
+      });
+
+      cleanedReply = this.cleanReply(followUpResult.content);
+    }
+
     if (cleanedReply) {
       this.stateStore?.upsertActiveRequest({
         requestId,

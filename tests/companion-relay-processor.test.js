@@ -164,4 +164,73 @@ describe('EkybotCompanionRelayProcessor', () => {
     assert.deepEqual(requestIds, ['req-9', 'req-9', 'req-9']);
     assert.deepEqual(cleared, ['req-9']);
   });
+
+  it('keeps the continuity test alive until a final follow-up reply is published', async () => {
+    const posted = [];
+    const prompts = [];
+    const sleeps = [];
+
+    const processor = new EkybotCompanionRelayProcessor(
+      {
+        updateRelayNotifications: async () => {},
+        postRelayMessage: async (_machineId, payload) => {
+          posted.push(payload.content);
+        },
+      },
+      {
+        sendRelayPrompt: async ({ prompt }) => {
+          prompts.push(prompt);
+          if (prompts.length === 1) {
+            return {
+              content:
+                'Parfait — test lancé ✅\n\nJ’ai programmé le message de fin automatique dans 100 secondes.',
+            };
+          }
+          return {
+            content: 'Conclusion finale : la continuité tient sans relance utilisateur.',
+          };
+        },
+      },
+      {
+        continuityDelayFollowUpMs: 1,
+        sleepFn: async (ms) => {
+          sleeps.push(ms);
+        },
+        stateStore: {
+          upsertActiveRequest() {},
+          clearActiveRequest() {},
+          load() {
+            return { activeRequests: [] };
+          },
+        },
+      }
+    );
+
+    await processor.processNotification('machine-1', {
+      id: 'notif-test',
+      toAgentId: 'agent-target',
+      threadId: 'support',
+      relay: {
+        type: 'channel_dispatch',
+        runtime: {
+          requestId: 'req-test',
+        },
+        source: {
+          channelKey: 'support',
+          agentName: 'Odin',
+        },
+        target: {
+          agentId: 'agent-target',
+          name: 'Odin',
+        },
+        message: {
+          content: 'TEST_CONTINUITY_DELAY_70 donne la conclusion finale dans ce fil',
+        },
+      },
+    });
+
+    assert.deepEqual(sleeps, [1]);
+    assert.equal(prompts.length, 2);
+    assert.deepEqual(posted, ['Conclusion finale : la continuité tient sans relance utilisateur.']);
+  });
 });
