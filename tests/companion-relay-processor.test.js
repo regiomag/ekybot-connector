@@ -246,7 +246,7 @@ describe('EkybotCompanionRelayProcessor', () => {
     });
 
     assert.equal(prompts.length, 1);
-    assert.deepEqual(sessionKeys, ['agent:agent-target:ekybot-relay:support:continuity-test']);
+    assert.deepEqual(sessionKeys, ['agent:agent-target:ekybot-relay-v2:support:continuity-test']);
     assert.deepEqual(posted, ['Réponse finale immédiate : voici directement la conclusion utile.']);
   });
 });

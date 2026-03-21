@@ -10,6 +10,7 @@ const SENTINEL_REPLIES = ['NO_REPLY', 'HEARTBEAT_OK', 'ANNOUNCE_SKIP'];
 const DEFAULT_RELAY_ATTEMPTS = 2;
 const DEFAULT_RELAY_RETRY_DELAY_MS = 1_000;
 const CONTINUITY_DELAY_TEST_MARKER = 'TEST_CONTINUITY_DELAY_70';
+const OPENCLAW_RELAY_SESSION_NAMESPACE = 'ekybot-relay-v2';
 
 function normalizeChannelKey(value) {
   return typeof value === 'string' && value.trim() ? value.trim().toLowerCase() : null;
@@ -30,7 +31,7 @@ function logContinuityCorrelation(event, payload) {
 }
 
 function buildRelaySessionKey({ targetAgentId, targetChannel, isContinuityDelayTest }) {
-  const base = `agent:${targetAgentId}:ekybot-relay:${targetChannel}`;
+  const base = `agent:${targetAgentId}:${OPENCLAW_RELAY_SESSION_NAMESPACE}:${targetChannel}`;
   return isContinuityDelayTest ? `${base}:continuity-test` : base;
 }
 
