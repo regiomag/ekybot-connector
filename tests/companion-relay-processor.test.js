@@ -165,11 +165,9 @@ describe('EkybotCompanionRelayProcessor', () => {
     assert.deepEqual(cleared, ['req-9']);
   });
 
-  it('keeps the continuity test alive until a final follow-up reply is published', async () => {
+  it('publishes the first available reply immediately even for the continuity test marker', async () => {
     const posted = [];
     const prompts = [];
-    const sleeps = [];
-
     const processor = new EkybotCompanionRelayProcessor(
       {
         updateRelayNotifications: async () => {},
@@ -180,80 +178,12 @@ describe('EkybotCompanionRelayProcessor', () => {
       {
         sendRelayPrompt: async ({ prompt }) => {
           prompts.push(prompt);
-          if (prompts.length === 1) {
-            return {
-              content:
-                'Parfait — test lancé ✅\n\nJ’ai programmé le message de fin automatique dans 100 secondes.',
-            };
-          }
           return {
-            content: 'Conclusion finale : la continuité tient sans relance utilisateur.',
+            content: 'Réponse finale immédiate : voici directement la conclusion utile.',
           };
         },
       },
       {
-        continuityDelayFollowUpMs: 1,
-        sleepFn: async (ms) => {
-          sleeps.push(ms);
-        },
-        stateStore: {
-          upsertActiveRequest() {},
-          clearActiveRequest() {},
-          load() {
-            return { activeRequests: [] };
-          },
-        },
-      }
-    );
-
-    await processor.processNotification('machine-1', {
-      id: 'notif-test',
-      toAgentId: 'agent-target',
-      threadId: 'support',
-      relay: {
-        type: 'channel_dispatch',
-        runtime: {
-          requestId: 'req-test',
-        },
-        source: {
-          channelKey: 'support',
-          agentName: 'Odin',
-        },
-        target: {
-          agentId: 'agent-target',
-          name: 'Odin',
-        },
-        message: {
-          content: 'TEST_CONTINUITY_DELAY_70 donne la conclusion finale dans ce fil',
-        },
-      },
-    });
-
-    assert.deepEqual(sleeps, [1]);
-    assert.equal(prompts.length, 2);
-    assert.deepEqual(posted, ['Conclusion finale : la continuité tient sans relance utilisateur.']);
-  });
-
-  it('does not artificially wait 70s when the continuity test already has a final reply', async () => {
-    const posted = [];
-    const sleeps = [];
-    const processor = new EkybotCompanionRelayProcessor(
-      {
-        updateRelayNotifications: async () => {},
-        postRelayMessage: async (_machineId, payload) => {
-          posted.push(payload.content);
-        },
-      },
-      {
-        sendRelayPrompt: async () => ({
-          content: 'Réponse finale immédiate : voici directement la conclusion utile.',
-        }),
-      },
-      {
-        continuityDelayFollowUpMs: 1,
-        sleepFn: async (ms) => {
-          sleeps.push(ms);
-        },
         stateStore: {
           upsertActiveRequest() {},
           clearActiveRequest() {},
@@ -287,7 +217,7 @@ describe('EkybotCompanionRelayProcessor', () => {
       },
     });
 
-    assert.deepEqual(sleeps, []);
+    assert.equal(prompts.length, 1);
     assert.deepEqual(posted, ['Réponse finale immédiate : voici directement la conclusion utile.']);
   });
 });
