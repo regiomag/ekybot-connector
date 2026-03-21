@@ -69,6 +69,17 @@ class EkybotCompanionRelayProcessor {
         : '';
 
     if (type === 'channel_dispatch') {
+      const timingHint = content.includes('TEST_CONTINUITY_DELAY_70')
+        ? [
+            'Le marqueur TEST_CONTINUITY_DELAY_70 sert a tester la continuite du transport, pas a te faire promettre une reponse plus tard.',
+            'Le systeme affiche deja l accuse de reception immediatement.',
+            'Donne donc directement la reponse finale demandee quand tu reponds. Ne reponds pas seulement "je reviens plus tard".',
+          ]
+        : [
+            'Ne consomme pas ta reponse avec une promesse de retour plus tard.',
+            'Quand tu reponds, donne directement la reponse utile/finale attendue.',
+          ];
+
       return [
         '[CHANNEL DISPATCH]',
         `Target agent: ${targetAgentName}`,
@@ -77,6 +88,7 @@ class EkybotCompanionRelayProcessor {
         'Tu réponds au message utilisateur de ton propre channel.',
         'Réponds normalement, sans recopier ce préambule technique.',
         'Ta réponse sera republiée automatiquement dans le même channel visible par l’utilisateur.',
+        ...timingHint,
         'Si aucune réponse n’est nécessaire, réponds exactement NO_REPLY.',
         '',
         'Message reçu :',
