@@ -8,6 +8,7 @@ const {
 const SENTINEL_REPLIES = ['NO_REPLY', 'HEARTBEAT_OK', 'ANNOUNCE_SKIP'];
 const DEFAULT_RELAY_ATTEMPTS = 2;
 const DEFAULT_RELAY_RETRY_DELAY_MS = 1_000;
+const CONTINUITY_DELAY_TEST_MARKER = 'TEST_CONTINUITY_DELAY_70';
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -20,6 +21,11 @@ function normalizeChannelKey(value) {
 function resolveRelayRequestId(notification) {
   const requestId = notification?.relay?.runtime?.requestId;
   return typeof requestId === 'string' && requestId.trim() ? requestId.trim() : notification?.id;
+}
+
+function hasContinuityDelayTestMarker(notification) {
+  const content = notification?.relay?.message?.content || notification?.content;
+  return typeof content === 'string' && content.includes(CONTINUITY_DELAY_TEST_MARKER);
 }
 
 class EkybotCompanionRelayProcessor {
@@ -221,7 +227,10 @@ class EkybotCompanionRelayProcessor {
         : normalizedTargetChannel && normalizedTargetChannel !== 'general'
           ? normalizedTargetChannel
           : sourceChannel || targetAgentId || 'general';
-    const sessionKey = `agent:${targetAgentId}:ekybot:${targetChannel}`;
+    const isContinuityDelayTest = hasContinuityDelayTestMarker(notification);
+    const sessionKey = isContinuityDelayTest
+      ? `agent:${targetAgentId}:ekybot:${targetChannel}:continuity-test`
+      : `agent:${targetAgentId}:ekybot:${targetChannel}`;
     const prompt = this.buildRelayPrompt(notification);
     const targetModel = typeof target.model === 'string' && target.model.trim() ? target.model.trim() : null;
 
