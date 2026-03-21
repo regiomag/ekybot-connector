@@ -16,13 +16,23 @@ Module._load = function patchedLoad(request, parent, isMain) {
 
 const EkybotCompanionRelayProcessor = require('../src/companion-relay-processor');
 const OpenClawGatewayClient = require('../src/openclaw-gateway-client');
-
-const DEFAULT_RELAY_HARD_TIMEOUT_MS = 65_000;
+const {
+  RELAY_PUBLISH_GRACE_MS,
+  DEFAULT_RELAY_HARD_TIMEOUT_MS,
+  DEFAULT_DELAYED_MS,
+  DEFAULT_STALLED_MS,
+  DEFAULT_FAILED_MS_TEST,
+  resolveRelayLifecyclePolicy,
+} = require('../src/relay-continuity');
 
 describe('EkybotCompanionRelayProcessor', () => {
   afterEach(() => {
     delete process.env.EKYBOT_COMPANION_RELAY_HARD_TIMEOUT_MS;
     delete process.env.EKYBOT_COMPANION_RELAY_TIMEOUT_MS;
+    delete process.env.EKYBOT_RELAY_DELAYED_MS;
+    delete process.env.EKYBOT_RELAY_STALLED_MS;
+    delete process.env.EKYBOT_RELAY_FAILED_MS;
+    delete process.env.EKYBOT_RELAY_PROFILE;
   });
 
   it('uses client timeout + publish grace for relay hard-timeout by default', () => {
@@ -43,6 +53,22 @@ describe('EkybotCompanionRelayProcessor', () => {
     const client = new OpenClawGatewayClient();
 
     assert.equal(client.timeoutMs, 60_000);
+  });
+
+  it('exposes the continuity thresholds expected by the UI contract', () => {
+    assert.equal(DEFAULT_DELAYED_MS, 60_000);
+    assert.equal(DEFAULT_STALLED_MS, 180_000);
+    assert.equal(RELAY_PUBLISH_GRACE_MS, 5_000);
+  });
+
+  it('allows a configurable failed TTL for test or production modes', () => {
+    process.env.EKYBOT_RELAY_PROFILE = 'test';
+    process.env.EKYBOT_RELAY_FAILED_MS = '900000';
+
+    const lifecycle = resolveRelayLifecyclePolicy();
+
+    assert.equal(DEFAULT_FAILED_MS_TEST, 600_000);
+    assert.equal(lifecycle.failedMs, 900_000);
   });
 
   it('publishes the relay message before acknowledging delivery', async () => {
