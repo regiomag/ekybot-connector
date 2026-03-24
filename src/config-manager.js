@@ -203,6 +203,70 @@ class OpenClawConfigManager {
     };
   }
 
+  removeAgentFromManagedFragment({ openclawAgentId, workspacePath, name } = {}) {
+    const fragmentPath = this.resolveHomePath(this.getManagedFragmentPath());
+
+    if (!fs.existsSync(fragmentPath)) {
+      return { updated: false, fragmentPath, reason: 'fragment_missing' };
+    }
+
+    try {
+      const raw = fs.readFileSync(fragmentPath, 'utf8');
+      const parsed = JSON.parse(raw);
+      const sourceAgents = Array.isArray(parsed?.agents)
+        ? parsed.agents
+        : Array.isArray(parsed?.agents?.list)
+          ? parsed.agents.list
+          : [];
+
+      const matchesAgent = (agent) => {
+        const candidateId = agent?.id || agent?.key || agent?.name || null;
+        const candidateWorkspace = agent?.workspace || agent?.workspacePath || agent?.path || null;
+
+        if (openclawAgentId && candidateId === openclawAgentId) {
+          return true;
+        }
+
+        if (workspacePath && candidateWorkspace) {
+          return this.resolveHomePath(String(candidateWorkspace)) === this.resolveHomePath(workspacePath);
+        }
+
+        if (name && agent?.name === name) {
+          return true;
+        }
+
+        return false;
+      };
+
+      const nextAgents = sourceAgents.filter((agent) => !matchesAgent(agent));
+      if (nextAgents.length === sourceAgents.length) {
+        return { updated: false, fragmentPath, reason: 'agent_not_found' };
+      }
+
+      const nextFragment = Array.isArray(parsed?.agents)
+        ? { ...parsed, agents: nextAgents }
+        : {
+            ...parsed,
+            agents: {
+              ...(parsed?.agents && typeof parsed.agents === 'object' ? parsed.agents : {}),
+              list: nextAgents,
+            },
+          };
+
+      const content = `${JSON.stringify(nextFragment, null, 2)}\n`;
+      this.writeFileAtomic(fragmentPath, content);
+
+      return {
+        updated: true,
+        fragmentPath,
+        fragmentHash: crypto.createHash('sha256').update(content).digest('hex'),
+      };
+    } catch (error) {
+      console.warn(chalk.yellow(`Warning: failed to remove agent from managed fragment at ${fragmentPath}: ${error.message}`));
+      return { updated: false, fragmentPath, reason: 'parse_failed' };
+    }
+  }
+
   removeAgentFromConfig({ openclawAgentId, workspacePath, name } = {}) {
     const config = this.readConfig();
     let updated = false;

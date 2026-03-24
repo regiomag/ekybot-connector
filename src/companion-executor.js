@@ -182,13 +182,19 @@ class EkybotCompanionExecutor {
         desiredState.managedFragmentPath
       );
       const fragmentInfo = this.configManager.writeManagedFragment(desiredState);
+      const managedFragmentRemoveInfo = this.configManager.removeAgentFromManagedFragment({
+        openclawAgentId: payload.openclawAgentId,
+        workspacePath: payload.workspacePath,
+        name: payload.name,
+      });
 
       const persistedState = this.stateStore.load() || {};
       this.stateStore.save({
         ...persistedState,
         lastAppliedDesiredConfigVersion: desiredState.desiredConfigVersion,
         lastAppliedManagedFragmentPath: fragmentInfo.fragmentPath,
-        lastAppliedManagedFragmentHash: fragmentInfo.fragmentHash,
+        lastAppliedManagedFragmentHash:
+          managedFragmentRemoveInfo.fragmentHash || fragmentInfo.fragmentHash,
       });
 
       await this.apiClient.updateOperation(machineId, operation.id, {
@@ -201,6 +207,7 @@ class EkybotCompanionExecutor {
           fragmentHash: fragmentInfo.fragmentHash,
           managedAgentCount: desiredState.agents.length,
           removedFromConfig: removeInfo.updated,
+          removedFromManagedFragment: managedFragmentRemoveInfo.updated,
           workspaceDeleted: workspaceInfo.deleted,
           workspacePreserved: workspaceInfo.preserved === true,
           workspaceDeleteReason: workspaceInfo.reason || null,
