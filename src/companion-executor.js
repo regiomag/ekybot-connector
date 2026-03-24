@@ -169,7 +169,15 @@ class EkybotCompanionExecutor {
         workspacePath: payload.workspacePath,
         name: payload.name,
       });
-      const workspaceInfo = this.configManager.deleteWorkspace(payload.workspacePath);
+      const preserveWorkspace = payload.preserveWorkspace === true;
+      const workspaceInfo = preserveWorkspace
+        ? {
+            deleted: false,
+            preserved: true,
+            reason: 'preserve_workspace_requested',
+            workspacePath: payload.workspacePath || null,
+          }
+        : this.configManager.deleteWorkspace(payload.workspacePath);
       const includeInfo = this.configManager.ensureManagedInclude(
         desiredState.managedFragmentPath
       );
@@ -194,6 +202,7 @@ class EkybotCompanionExecutor {
           managedAgentCount: desiredState.agents.length,
           removedFromConfig: removeInfo.updated,
           workspaceDeleted: workspaceInfo.deleted,
+          workspacePreserved: workspaceInfo.preserved === true,
           workspaceDeleteReason: workspaceInfo.reason || null,
           workspacePath: workspaceInfo.workspacePath || payload.workspacePath || null,
         },
@@ -201,7 +210,7 @@ class EkybotCompanionExecutor {
 
       this.logger.log(
         chalk.green(
-          `✓ delete_agent applied (${payload.openclawAgentId || payload.name || 'unknown'} removed)`
+          `✓ delete_agent applied (${payload.openclawAgentId || payload.name || 'unknown'} removed${preserveWorkspace ? ', workspace preserved' : ''})`
         )
       );
       return;
