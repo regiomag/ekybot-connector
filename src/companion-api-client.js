@@ -49,12 +49,28 @@ class EkybotCompanionApiClient {
   }
 
   async request(method, pathname, data = null, extraHeaders = {}, authModeOverride = null) {
-    const response = await fetchImpl(`${this.baseUrl}${pathname}`, {
-      method,
-      headers: this.buildHeaders(extraHeaders, authModeOverride),
-      body: data ? JSON.stringify(data) : undefined,
-      timeout: 30000,
-    });
+    const timeoutMs = this.requestTimeoutMs || 30000;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    let response;
+    try {
+      response = await fetchImpl(`${this.baseUrl}${pathname}`, {
+        method,
+        headers: this.buildHeaders(extraHeaders, authModeOverride),
+        body: data ? JSON.stringify(data) : undefined,
+        signal: controller.signal,
+      });
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        throw new Error(
+          `Companion API request failed on ${method} ${pathname}: timeout after ${timeoutMs}ms`
+        );
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
 
     const rawText = await response.text();
     const contentType = response.headers.get('content-type') || '';

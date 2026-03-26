@@ -59,6 +59,9 @@ async function main() {
   });
 
   let apiCheck = null;
+  let lastSyncCheck = null;
+  let memoryCoverageCheck = null;
+
   if (state.machineApiKey) {
     const apiClient = new EkybotCompanionApiClient({
       baseUrl,
@@ -88,9 +91,47 @@ async function main() {
 
   checks.push(apiCheck);
 
+  // Last sync freshness check (warn if >15 min stale)
+  const lastSyncAt = state.lastInventoryUploadedAt || state.lastHeartbeatAt;
+  if (lastSyncAt) {
+    const staleSec = Math.floor((Date.now() - new Date(lastSyncAt).getTime()) / 1000);
+    const staleMin = Math.floor(staleSec / 60);
+    const isFresh = staleSec < 900; // 15 min
+    lastSyncCheck = {
+      ok: isFresh,
+      label: 'Last sync freshness',
+      detail: isFresh
+        ? `${staleMin}m ago (${lastSyncAt})`
+        : `STALE — ${staleMin}m ago (${lastSyncAt}) — run npm run companion:sync`,
+    };
+  } else {
+    lastSyncCheck = {
+      ok: false,
+      label: 'Last sync freshness',
+      detail: 'no sync recorded — run npm run companion:sync',
+    };
+  }
+  checks.push(lastSyncCheck);
+
+  // Memory coverage: detect agents with no runtime files
+  const agentsWithFiles = memoryPayload.agents.filter((a) => a.files && a.files.length > 0);
+  const agentsWithoutFiles = memoryPayload.agents.filter((a) => !a.files || a.files.length === 0);
+  memoryCoverageCheck = {
+    ok: agentsWithoutFiles.length === 0,
+    label: 'Memory coverage (all agents)',
+    detail:
+      agentsWithoutFiles.length === 0
+        ? `all ${memoryPayload.agents.length} agent(s) have runtime files`
+        : `${agentsWithoutFiles.length} agent(s) missing runtime files: ${agentsWithoutFiles.map((a) => a.agentId || a.id || '?').join(', ')}`,
+  };
+  checks.push(memoryCoverageCheck);
+
   console.log(chalk.gray(`base URL = ${baseUrl}`));
   console.log(chalk.gray(`state file = ${stateStore.filePath}`));
   console.log(chalk.gray(`identity file = ${stateStore.identityFilePath}`));
+  if (state.degraded) {
+    console.log(chalk.yellow('⚠️  Last sync was in degraded mode (some steps were skipped)'));
+  }
   console.log('');
 
   checks.forEach((check) => printCheck(check.ok, check.label, check.detail));
@@ -108,11 +149,17 @@ async function main() {
     if (apiCheck && !apiCheck.ok) {
       console.log(chalk.yellow('- Run "npm run companion:api-check" to inspect the API auth details.'));
     }
+    if (lastSyncCheck && !lastSyncCheck.ok) {
+      console.log(chalk.yellow('- Run "npm run companion:sync" to refresh inventory and memory.'));
+    }
+    if (memoryCoverageCheck && !memoryCoverageCheck.ok) {
+      console.log(chalk.yellow('- Some agents have no memory runtime files. Check their workspace paths.'));
+    }
     process.exit(1);
   }
 
   console.log('');
-  console.log(chalk.green('Companion doctor passed.'));
+  console.log(chalk.green('✅ Companion doctor passed.'));
 }
 
 if (require.main === module) {
