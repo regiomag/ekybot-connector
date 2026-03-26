@@ -249,4 +249,67 @@ describe('EkybotCompanionRelayProcessor', () => {
     assert.deepEqual(sessionKeys, ['agent:agent-target:ekybot-relay-v2:support:continuity-test']);
     assert.deepEqual(posted, ['Réponse finale immédiate : voici directement la conclusion utile.']);
   });
+
+  it('prefers the locally resolved agent model over a stale relay payload model', async () => {
+    const dispatchedModels = [];
+    const processor = new EkybotCompanionRelayProcessor(
+      {
+        updateRelayNotifications: async () => {},
+        postRelayMessage: async () => {},
+      },
+      {
+        sendRelayPrompt: async ({ model }) => {
+          dispatchedModels.push(model);
+          return { content: 'Réponse locale OK' };
+        },
+      },
+      {
+        inventoryCollector: {
+          collect() {
+            return {
+              agents: [
+                {
+                  externalId: 'ekynavy-strategie',
+                  model: 'mistral-large-3:675b',
+                },
+              ],
+            };
+          },
+        },
+        stateStore: {
+          upsertActiveRequest() {},
+          clearActiveRequest() {},
+          load() {
+            return { activeRequests: [] };
+          },
+        },
+      }
+    );
+
+    await processor.processNotification('machine-1', {
+      id: 'notif-marina',
+      toAgentId: 'ekynavy-strategie',
+      threadId: 'marketing',
+      relay: {
+        type: 'agent_notification',
+        runtime: {
+          requestId: 'req-marina',
+        },
+        source: {
+          channelKey: 'marketing',
+          agentName: 'Odin',
+        },
+        target: {
+          agentId: 'ekynavy-strategie',
+          name: 'Marina',
+          model: 'openai/gpt-4.1-mini',
+        },
+        message: {
+          content: 'Rappelle ton modele actuel et ta mission',
+        },
+      },
+    });
+
+    assert.deepEqual(dispatchedModels, ['mistral-large-3:675b']);
+  });
 });

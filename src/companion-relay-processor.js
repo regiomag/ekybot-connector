@@ -66,6 +66,27 @@ class EkybotCompanionRelayProcessor {
     }
   }
 
+  resolveLocalTargetModel(targetAgentId) {
+    if (!this.inventoryCollector || typeof this.inventoryCollector.collect !== 'function') {
+      return null;
+    }
+
+    try {
+      const inventory = this.inventoryCollector.collect();
+      const agents = Array.isArray(inventory?.agents) ? inventory.agents : [];
+      const targetAgent = agents.find((agent) => agent?.externalId === targetAgentId);
+      const model = typeof targetAgent?.model === 'string' && targetAgent.model.trim()
+        ? targetAgent.model.trim()
+        : null;
+
+      return model;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(chalk.yellow(`! relay could not resolve local model for ${targetAgentId}: ${message}`));
+      return null;
+    }
+  }
+
   buildRelayPrompt(notification) {
     const relay = notification?.relay || {};
     const source = relay.source || {};
@@ -245,7 +266,17 @@ class EkybotCompanionRelayProcessor {
       isContinuityDelayTest,
     });
     const prompt = this.buildRelayPrompt(notification);
-    const targetModel = typeof target.model === 'string' && target.model.trim() ? target.model.trim() : null;
+    const requestedTargetModel = typeof target.model === 'string' && target.model.trim() ? target.model.trim() : null;
+    const localTargetModel = this.resolveLocalTargetModel(targetAgentId);
+    const targetModel = localTargetModel || requestedTargetModel;
+
+    if (requestedTargetModel && localTargetModel && requestedTargetModel !== localTargetModel) {
+      console.log(
+        chalk.yellow(
+          `! relay model override ${notification.id} targetAgent=${targetAgentId} requested=${requestedTargetModel} local=${localTargetModel}`
+        )
+      );
+    }
 
     console.log(
       chalk.gray(
