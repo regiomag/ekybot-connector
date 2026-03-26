@@ -3,6 +3,38 @@ const fetchImpl = global.fetch
   : (...args) => require('node-fetch')(...args);
 const { resolveRelayTimeout, resolveRelayLifecyclePolicy } = require('./relay-continuity');
 
+function createTimeoutError(stage, timeoutMs) {
+  const error = new Error(`Gateway ${stage} timed out after ${timeoutMs}ms`);
+  error.name = 'RelayTimeoutError';
+  return error;
+}
+
+async function withTimeout(promise, timeoutMs, onTimeout) {
+  let timeoutId = null;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timeoutId = setTimeout(() => {
+          try {
+            if (typeof onTimeout === 'function') {
+              onTimeout();
+            }
+          } catch (_error) {
+            // Best effort only.
+          }
+          reject(createTimeoutError('request', timeoutMs));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
 class OpenClawGatewayClient {
   constructor(options = {}) {
     const baseUrl =
@@ -83,21 +115,35 @@ class OpenClawGatewayClient {
 
   async sendRelayPrompt({ agentId, sessionKey, prompt, model = null }) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
 
     try {
-      const response = await fetchImpl(`${this.baseUrl}/v1/chat/completions`, {
-        method: 'POST',
-        headers: this.buildHeaders(agentId, sessionKey),
-        body: JSON.stringify({
-          model: model || `openclaw:${agentId}`,
-          messages: [{ role: 'user', content: prompt }],
-          stream: false,
+      const requestTimeoutMs = this.timeoutMs;
+      const response = await withTimeout(
+        fetchImpl(`${this.baseUrl}/v1/chat/completions`, {
+          method: 'POST',
+          headers: this.buildHeaders(agentId, sessionKey),
+          body: JSON.stringify({
+            model: model || `openclaw:${agentId}`,
+            messages: [{ role: 'user', content: prompt }],
+            stream: false,
+          }),
+          signal: controller.signal,
         }),
-        signal: controller.signal,
+        requestTimeoutMs,
+        () => controller.abort()
+      );
+
+      const rawText = await withTimeout(
+        response.text(),
+        requestTimeoutMs,
+        () => controller.abort()
+      ).catch((error) => {
+        if (error?.name === 'RelayTimeoutError') {
+          throw createTimeoutError('response body', requestTimeoutMs);
+        }
+        throw error;
       });
 
-      const rawText = await response.text();
       if (!response.ok) {
         throw new Error(`Gateway returned ${response.status}: ${rawText.slice(0, 300)}`);
       }
@@ -114,8 +160,11 @@ class OpenClawGatewayClient {
         content,
         rawText,
       };
-    } finally {
-      clearTimeout(timeoutId);
+    } catch (error) {
+      if (error?.name === 'AbortError') {
+        throw createTimeoutError('request', this.timeoutMs);
+      }
+      throw error;
     }
   }
 }
