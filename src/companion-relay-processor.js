@@ -10,7 +10,8 @@ const SENTINEL_REPLIES = ['NO_REPLY', 'HEARTBEAT_OK', 'ANNOUNCE_SKIP'];
 const DEFAULT_RELAY_ATTEMPTS = 2;
 const DEFAULT_RELAY_RETRY_DELAY_MS = 1_000;
 const CONTINUITY_DELAY_TEST_MARKER = 'TEST_CONTINUITY_DELAY_70';
-const OPENCLAW_RELAY_SESSION_NAMESPACE = 'ekybot-relay-v2';
+const DEFAULT_OPENCLAW_RELAY_SESSION_NAMESPACE = 'ekybot-relay-v2';
+const LEGACY_OPENCLAW_RELAY_SESSION_NAMESPACES = ['ekybot-relay', 'ekybot'];
 
 function normalizeChannelKey(value) {
   return typeof value === 'string' && value.trim() ? value.trim().toLowerCase() : null;
@@ -30,8 +31,19 @@ function logContinuityCorrelation(event, payload) {
   console.log(`[continuity-test] ${event} ${JSON.stringify(payload)}`);
 }
 
-function buildRelaySessionKey({ targetAgentId, targetChannel, isContinuityDelayTest }) {
-  const base = `agent:${targetAgentId}:${OPENCLAW_RELAY_SESSION_NAMESPACE}:${targetChannel}`;
+function resolveRelaySessionNamespaces() {
+  const preferred = typeof process.env.EKYBOT_RELAY_SESSION_NAMESPACE === 'string'
+    && process.env.EKYBOT_RELAY_SESSION_NAMESPACE.trim()
+    ? process.env.EKYBOT_RELAY_SESSION_NAMESPACE.trim()
+    : DEFAULT_OPENCLAW_RELAY_SESSION_NAMESPACE;
+
+  return Array.from(
+    new Set([preferred, ...LEGACY_OPENCLAW_RELAY_SESSION_NAMESPACES].filter(Boolean))
+  );
+}
+
+function buildRelaySessionKey({ targetAgentId, targetChannel, isContinuityDelayTest, namespace }) {
+  const base = `agent:${targetAgentId}:${namespace}:${targetChannel}`;
   return isContinuityDelayTest ? `${base}:continuity-test` : base;
 }
 
@@ -260,11 +272,15 @@ class EkybotCompanionRelayProcessor {
           ? normalizedTargetChannel
           : sourceChannel || targetAgentId || 'general';
     const isContinuityDelayTest = hasContinuityDelayTestMarker(notification);
-    const sessionKey = buildRelaySessionKey({
-      targetAgentId,
-      targetChannel,
-      isContinuityDelayTest,
-    });
+    const sessionKeyCandidates = resolveRelaySessionNamespaces().map((namespace) =>
+      buildRelaySessionKey({
+        targetAgentId,
+        targetChannel,
+        isContinuityDelayTest,
+        namespace,
+      })
+    );
+    const sessionKey = sessionKeyCandidates[0];
     const prompt = this.buildRelayPrompt(notification);
     const requestedTargetModel = typeof target.model === 'string' && target.model.trim() ? target.model.trim() : null;
     const localTargetModel = this.resolveLocalTargetModel(targetAgentId);
@@ -307,13 +323,39 @@ class EkybotCompanionRelayProcessor {
     });
     await this.sendRuntimeHeartbeat();
 
-    const gatewayResult = await this.sendRelayPromptWithRetry({
-      notificationId: notification.id,
-      agentId: targetAgentId,
-      sessionKey,
-      prompt,
-      model: targetModel,
-    });
+    let gatewayResult = null;
+    let lastDispatchError = null;
+
+    for (const candidateSessionKey of sessionKeyCandidates) {
+      try {
+        if (candidateSessionKey !== sessionKey) {
+          console.log(
+            chalk.yellow(
+              `! relay retrying ${notification.id} with legacy session=${candidateSessionKey}`
+            )
+          );
+        }
+
+        gatewayResult = await this.sendRelayPromptWithRetry({
+          notificationId: notification.id,
+          agentId: targetAgentId,
+          sessionKey: candidateSessionKey,
+          prompt,
+          model: targetModel,
+        });
+        break;
+      } catch (error) {
+        lastDispatchError = error;
+        const message = error instanceof Error ? error.message : String(error);
+        if (!message.includes('401') || candidateSessionKey === sessionKeyCandidates[sessionKeyCandidates.length - 1]) {
+          throw error;
+        }
+      }
+    }
+
+    if (!gatewayResult) {
+      throw lastDispatchError || new Error('Relay dispatch failed');
+    }
 
     const cleanedReply = this.cleanReply(gatewayResult.content);
     if (isContinuityDelayTest) {
