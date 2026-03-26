@@ -370,7 +370,17 @@ class EkybotCompanionRelayProcessor {
       replied: 0,
     };
 
-    const payload = await this.apiClient.fetchRelayNotifications(machineId, { limit });
+    console.log(chalk.gray(`[relay] polling machine=${machineId} limit=${limit}`));
+
+    let payload;
+    try {
+      payload = await this.apiClient.fetchRelayNotifications(machineId, { limit });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(chalk.yellow(`! relay fetch failed machine=${machineId}: ${message}`));
+      throw error;
+    }
+
     const notifications = Array.isArray(payload?.notifications) ? payload.notifications : [];
     result.fetched = notifications.length;
 
