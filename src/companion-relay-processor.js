@@ -374,6 +374,22 @@ class EkybotCompanionRelayProcessor {
     const notifications = Array.isArray(payload?.notifications) ? payload.notifications : [];
     result.fetched = notifications.length;
 
+    if (notifications.length === 0) {
+      console.log(chalk.gray('[relay] fetched 0 notifications'));
+    } else {
+      console.log(
+        chalk.gray(
+          `[relay] fetched ${notifications.length} notifications: ${notifications
+            .map((notification) => {
+              const relay = notification?.relay || {};
+              const targetAgentId = relay?.target?.agentId || notification?.toAgentId || 'unknown';
+              return `${notification?.id || 'unknown'}:${relay?.type || 'agent_notification'}:${targetAgentId}`;
+            })
+            .join(', ')}`
+        )
+      );
+    }
+
     for (const notification of notifications) {
       try {
         const delivery = await this.processNotification(machineId, notification);

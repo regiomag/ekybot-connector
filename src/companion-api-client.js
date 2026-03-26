@@ -4,6 +4,11 @@ const fetchImpl = global.fetch
   ? (...args) => global.fetch(...args)
   : (...args) => require('node-fetch')(...args);
 
+function resolveRequestTimeoutMs() {
+  const raw = Number.parseInt(process.env.EKYBOT_COMPANION_API_TIMEOUT_MS || '', 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 30_000;
+}
+
 class EkybotCompanionApiClient {
   constructor(options = {}) {
     this.baseUrl = (options.baseUrl || process.env.EKYBOT_APP_URL || 'https://www.ekybot.com')
@@ -49,12 +54,28 @@ class EkybotCompanionApiClient {
   }
 
   async request(method, pathname, data = null, extraHeaders = {}, authModeOverride = null) {
-    const response = await fetchImpl(`${this.baseUrl}${pathname}`, {
-      method,
-      headers: this.buildHeaders(extraHeaders, authModeOverride),
-      body: data ? JSON.stringify(data) : undefined,
-      timeout: 30000,
-    });
+    const timeoutMs = resolveRequestTimeoutMs();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    let response;
+
+    try {
+      response = await fetchImpl(`${this.baseUrl}${pathname}`, {
+        method,
+        headers: this.buildHeaders(extraHeaders, authModeOverride),
+        body: data ? JSON.stringify(data) : undefined,
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (error?.name === 'AbortError') {
+        throw new Error(
+          `Companion API request failed on ${method} ${pathname}: timed out after ${timeoutMs}ms`
+        );
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     const rawText = await response.text();
     const contentType = response.headers.get('content-type') || '';
