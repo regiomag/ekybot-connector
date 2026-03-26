@@ -12,6 +12,7 @@ const {
   EkybotCompanionRelayProcessor,
 } = require('../src');
 const { buildCompanionRuntimeState } = require('../src/companion-runtime-state');
+const { withRetry } = require('../src/retry-util');
 
 async function reconcileCompanionState() {
   console.log(chalk.blue.bold('🔁 Ekybot Companion Reconcile'));
@@ -56,32 +57,47 @@ async function reconcileCompanionState() {
     return heartbeat;
   };
 
-  const sendInventorySnapshot = async () => {
+  // Degraded mode: inventory upload is best-effort with retry on transient errors
+  const sendInventorySnapshot = async ({ required = false } = {}) => {
     const inventory = inventoryCollector.toMachineInventoryPayload(state.machineId);
-    await apiClient.uploadInventory(state.machineId, inventory);
+    try {
+      await withRetry(
+        () => apiClient.uploadInventory(state.machineId, inventory),
+        { maxAttempts: 3, baseDelayMs: 2000, label: 'inventory-upload' }
+      );
+    } catch (err) {
+      if (required) throw err;
+      console.warn(chalk.yellow(`⚠️  Inventory upload failed (degraded, continuing): ${err.message}`));
+    }
     return inventory;
   };
 
-  const initialDesiredState = await apiClient.fetchDesiredState(state.machineId);
+  const initialDesiredState = await withRetry(
+    () => apiClient.fetchDesiredState(state.machineId),
+    { maxAttempts: 3, baseDelayMs: 1000, label: 'fetch-desired-state-initial' }
+  );
   const runtimeBefore = stateStore.load() || state;
-  await apiClient.sendHeartbeat(
-    state.machineId,
-    buildHeartbeat(
-      {
-        activeRequests: runtimeBefore.activeRequests,
-        lastDesiredSyncAt: runtimeBefore.lastDesiredSyncAt,
-        lastInventoryUploadedAt: runtimeBefore.lastInventoryUploadedAt,
-        lastApplyStartedAt: runtimeBefore.lastApplyStartedAt,
-        lastApplyCompletedAt: runtimeBefore.lastApplyCompletedAt,
-        lastReconciledAt: runtimeBefore.lastReconciledAt,
-        lastAppliedDesiredConfigVersion: runtimeBefore.lastAppliedDesiredConfigVersion,
-        lastAppliedManagedFragmentPath: runtimeBefore.lastAppliedManagedFragmentPath,
-        lastAppliedManagedFragmentHash: runtimeBefore.lastAppliedManagedFragmentHash,
-        driftDetected: runtimeBefore.driftDetected ?? false,
-        driftReason: runtimeBefore.driftReason,
-      },
-      (initialDesiredState.pendingOperations || []).length
-    )
+  await withRetry(
+    () => apiClient.sendHeartbeat(
+      state.machineId,
+      buildHeartbeat(
+        {
+          activeRequests: runtimeBefore.activeRequests,
+          lastDesiredSyncAt: runtimeBefore.lastDesiredSyncAt,
+          lastInventoryUploadedAt: runtimeBefore.lastInventoryUploadedAt,
+          lastApplyStartedAt: runtimeBefore.lastApplyStartedAt,
+          lastApplyCompletedAt: runtimeBefore.lastApplyCompletedAt,
+          lastReconciledAt: runtimeBefore.lastReconciledAt,
+          lastAppliedDesiredConfigVersion: runtimeBefore.lastAppliedDesiredConfigVersion,
+          lastAppliedManagedFragmentPath: runtimeBefore.lastAppliedManagedFragmentPath,
+          lastAppliedManagedFragmentHash: runtimeBefore.lastAppliedManagedFragmentHash,
+          driftDetected: runtimeBefore.driftDetected ?? false,
+          driftReason: runtimeBefore.driftReason,
+        },
+        (initialDesiredState.pendingOperations || []).length
+      )
+    ),
+    { maxAttempts: 3, baseDelayMs: 1000, label: 'heartbeat-initial' }
   );
 
   const firstInventory = await sendInventorySnapshot();
@@ -95,7 +111,10 @@ async function reconcileCompanionState() {
 
   const secondInventory = await sendInventorySnapshot();
   const finishedAt = new Date().toISOString();
-  const finalDesiredState = await apiClient.fetchDesiredState(state.machineId);
+  const finalDesiredState = await withRetry(
+    () => apiClient.fetchDesiredState(state.machineId),
+    { maxAttempts: 3, baseDelayMs: 1000, label: 'fetch-desired-state-final' }
+  );
   const finalPendingOperationCount = (finalDesiredState.pendingOperations || []).filter(
     (operation) => operation.status === 'pending' || operation.status === 'in_progress'
   ).length;
@@ -117,24 +136,27 @@ async function reconcileCompanionState() {
   });
 
   const finalState = stateStore.load() || state;
-  await apiClient.sendHeartbeat(
-    state.machineId,
-    buildHeartbeat(
-      {
-        activeRequests: finalState.activeRequests,
-        lastDesiredSyncAt: finalState.lastDesiredSyncAt,
-        lastInventoryUploadedAt: finalState.lastInventoryUploadedAt,
-        lastApplyStartedAt: finalState.lastApplyStartedAt,
-        lastApplyCompletedAt: finalState.lastApplyCompletedAt,
-        lastReconciledAt: finalState.lastReconciledAt,
-        lastAppliedDesiredConfigVersion: finalState.lastAppliedDesiredConfigVersion,
-        lastAppliedManagedFragmentPath: finalState.lastAppliedManagedFragmentPath,
-        lastAppliedManagedFragmentHash: finalState.lastAppliedManagedFragmentHash,
-        driftDetected: finalState.driftDetected ?? false,
-        driftReason: finalState.driftReason,
-      },
-      finalPendingOperationCount
-    )
+  await withRetry(
+    () => apiClient.sendHeartbeat(
+      state.machineId,
+      buildHeartbeat(
+        {
+          activeRequests: finalState.activeRequests,
+          lastDesiredSyncAt: finalState.lastDesiredSyncAt,
+          lastInventoryUploadedAt: finalState.lastInventoryUploadedAt,
+          lastApplyStartedAt: finalState.lastApplyStartedAt,
+          lastApplyCompletedAt: finalState.lastApplyCompletedAt,
+          lastReconciledAt: finalState.lastReconciledAt,
+          lastAppliedDesiredConfigVersion: finalState.lastAppliedDesiredConfigVersion,
+          lastAppliedManagedFragmentPath: finalState.lastAppliedManagedFragmentPath,
+          lastAppliedManagedFragmentHash: finalState.lastAppliedManagedFragmentHash,
+          driftDetected: finalState.driftDetected ?? false,
+          driftReason: finalState.driftReason,
+        },
+        finalPendingOperationCount
+      )
+    ),
+    { maxAttempts: 3, baseDelayMs: 1000, label: 'heartbeat-final' }
   );
 
   const relayResult = await relayProcessor.processPendingRelays(state.machineId);

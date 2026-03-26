@@ -30,6 +30,9 @@ async function runDaemon() {
   process.on('SIGINT', () => requestStop('SIGINT'));
   process.on('SIGTERM', () => requestStop('SIGTERM'));
 
+  const MAX_BACKOFF_MS = 5 * 60_000; // 5 min cap
+  let consecutiveFailures = 0;
+
   console.log(chalk.blue.bold('🤖 Ekybot Companion Daemon'));
   console.log(
     chalk.gray(
@@ -46,17 +49,28 @@ async function runDaemon() {
 
     try {
       await reconcileCompanionState();
+      consecutiveFailures = 0;
       console.log(chalk.green(`[Cycle ${cycle}] Companion reconcile finished`));
     } catch (error) {
+      consecutiveFailures += 1;
       const message = error instanceof Error ? error.message : String(error);
-      console.error(chalk.red(`[Cycle ${cycle}] Companion reconcile failed: ${message}`));
+      console.error(chalk.red(`[Cycle ${cycle}] Companion reconcile failed (${consecutiveFailures} consecutive): ${message}`));
     }
 
     if (once || stopRequested) {
       break;
     }
 
-    await sleep(intervalMs);
+    // Adaptive backoff: double the interval after each consecutive failure, capped at MAX_BACKOFF_MS
+    const waitMs = consecutiveFailures > 0
+      ? Math.min(intervalMs * Math.pow(2, consecutiveFailures - 1), MAX_BACKOFF_MS)
+      : intervalMs;
+
+    if (consecutiveFailures > 0) {
+      console.log(chalk.yellow(`[Cycle ${cycle}] Backing off ${Math.round(waitMs / 1000)}s before next attempt`));
+    }
+
+    await sleep(waitMs);
   }
 
   console.log(chalk.green('Companion daemon stopped.'));
