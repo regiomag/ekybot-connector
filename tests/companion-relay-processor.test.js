@@ -250,7 +250,7 @@ describe('EkybotCompanionRelayProcessor', () => {
     assert.deepEqual(posted, ['Réponse finale immédiate : voici directement la conclusion utile.']);
   });
 
-  it('prefers the locally resolved agent model over a stale relay payload model', async () => {
+  it('always sends an openclaw gateway model for the target agent', async () => {
     const dispatchedModels = [];
     const processor = new EkybotCompanionRelayProcessor(
       {
@@ -310,6 +310,6 @@ describe('EkybotCompanionRelayProcessor', () => {
       },
     });
 
-    assert.deepEqual(dispatchedModels, ['mistral-large-3:675b']);
+    assert.deepEqual(dispatchedModels, ['openclaw/ekynavy-strategie']);
   });
 });

@@ -285,6 +285,7 @@ class EkybotCompanionRelayProcessor {
     const requestedTargetModel = typeof target.model === 'string' && target.model.trim() ? target.model.trim() : null;
     const localTargetModel = this.resolveLocalTargetModel(targetAgentId);
     const targetModel = localTargetModel || requestedTargetModel;
+    const gatewayModel = `openclaw/${targetAgentId}`;
 
     if (requestedTargetModel && localTargetModel && requestedTargetModel !== localTargetModel) {
       console.log(
@@ -296,7 +297,7 @@ class EkybotCompanionRelayProcessor {
 
     console.log(
       chalk.gray(
-        `[relay] ${notification.id} ${type} source=#${sourceChannel} targetAgent=${targetAgentId} targetChannel=#${targetChannel} session=${sessionKey} model=${targetModel || `openclaw:${targetAgentId}`}`
+        `[relay] ${notification.id} ${type} source=#${sourceChannel} targetAgent=${targetAgentId} targetChannel=#${targetChannel} session=${sessionKey} gatewayModel=${gatewayModel} targetModel=${targetModel || 'unknown'}`
       )
     );
 
@@ -341,7 +342,7 @@ class EkybotCompanionRelayProcessor {
           agentId: targetAgentId,
           sessionKey: candidateSessionKey,
           prompt,
-          model: targetModel,
+          model: gatewayModel,
         });
         break;
       } catch (error) {
