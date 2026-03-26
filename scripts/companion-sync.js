@@ -10,6 +10,7 @@ const {
   OpenClawMemoryRuntime,
 } = require('../src');
 const { buildCompanionRuntimeState } = require('../src/companion-runtime-state');
+const { withRetry } = require('../src/retry-util');
 
 async function syncCompanionInventory() {
   console.log(chalk.blue.bold('🔄 Ekybot Companion Sync'));
@@ -57,37 +58,54 @@ async function syncCompanionInventory() {
   });
 
   let heartbeatResult;
-  let inventoryResult;
-  let desiredState;
+  let inventoryResult = null;
+  let desiredState = { desiredState: { agents: [] }, pendingOperations: [] };
   let memorySyncResult = null;
+  let inventoryFailed = false;
+  let memoryFailed = false;
   const memoryPayload = memoryRuntime.buildMachineMemorySyncPayload();
 
+  // Heartbeat is mandatory — fail hard if it doesn't go through
   try {
-    heartbeatResult = await apiClient.sendHeartbeat(state.machineId, heartbeat);
+    heartbeatResult = await withRetry(
+      () => apiClient.sendHeartbeat(state.machineId, heartbeat),
+      { maxAttempts: 3, baseDelayMs: 1000, label: 'heartbeat' }
+    );
   } catch (error) {
-    console.error(chalk.red(`Heartbeat payload: ${JSON.stringify(heartbeat, null, 2)}`));
+    console.error(chalk.red(`❌ Heartbeat failed (fatal): ${error.message}`));
     throw error;
   }
 
+  // Inventory — degraded mode: log warning and continue if transient failure
   try {
-    inventoryResult = await apiClient.uploadInventory(state.machineId, inventory);
+    inventoryResult = await withRetry(
+      () => apiClient.uploadInventory(state.machineId, inventory),
+      { maxAttempts: 3, baseDelayMs: 2000, label: 'inventory' }
+    );
   } catch (error) {
-    console.error(chalk.red(`Inventory payload: ${JSON.stringify(inventory, null, 2)}`));
-    throw error;
+    inventoryFailed = true;
+    console.warn(chalk.yellow(`⚠️  Inventory upload failed (degraded mode): ${error.message}`));
   }
 
+  // Memory sync — degraded mode: log warning and continue
   if (Array.isArray(memoryPayload.agents) && memoryPayload.agents.length > 0) {
     try {
-      memorySyncResult = await apiClient.syncMachineMemory(state.machineId, memoryPayload);
-    } catch (error) {
-      console.error(
-        chalk.red(`Memory sync payload: ${JSON.stringify(memoryPayload, null, 2)}`)
+      memorySyncResult = await withRetry(
+        () => apiClient.syncMachineMemory(state.machineId, memoryPayload),
+        { maxAttempts: 3, baseDelayMs: 2000, label: 'memory-sync' }
       );
-      throw error;
+    } catch (error) {
+      memoryFailed = true;
+      console.warn(chalk.yellow(`⚠️  Memory sync failed (degraded mode): ${error.message}`));
     }
   }
 
-  desiredState = await apiClient.fetchDesiredState(state.machineId);
+  // Desired state — best effort
+  try {
+    desiredState = await apiClient.fetchDesiredState(state.machineId);
+  } catch (error) {
+    console.warn(chalk.yellow(`⚠️  Desired state fetch failed: ${error.message}`));
+  }
 
   const syncCompletedAt = new Date().toISOString();
   stateStore.save({
@@ -105,13 +123,19 @@ async function syncCompanionInventory() {
   });
 
   console.log(chalk.green('✓ Heartbeat sent'));
-  console.log(chalk.green('✓ Inventory uploaded'));
   console.log(chalk.gray(`Status: ${heartbeatResult.machine?.status || heartbeat.status}`));
-  console.log(
-    chalk.gray(
-      `Inventory snapshot: ${inventoryResult.inventory?.id || 'created'} | Agents: ${inventory.agents.length}`
-    )
-  );
+
+  if (!inventoryFailed) {
+    console.log(chalk.green('✓ Inventory uploaded'));
+    console.log(
+      chalk.gray(
+        `Inventory snapshot: ${inventoryResult?.inventory?.id || 'created'} | Agents: ${inventory.agents.length}`
+      )
+    );
+  } else {
+    console.log(chalk.yellow('⚠️  Inventory skipped (degraded) — heartbeat still active'));
+  }
+
   if (memorySyncResult) {
     const syncedAgents = Array.isArray(memorySyncResult.results)
       ? memorySyncResult.results.filter((entry) => entry.synced).length
@@ -121,17 +145,28 @@ async function syncCompanionInventory() {
         `✓ Memory runtime synced (${syncedAgents}/${memoryPayload.agents.length} agents)`
       )
     );
+  } else if (memoryFailed) {
+    console.log(chalk.yellow('⚠️  Memory sync skipped (degraded)'));
   } else {
     console.log(chalk.gray('Memory runtime sync skipped (no eligible agent artifacts)'));
   }
+
   console.log(
     chalk.blue(
       `Desired state received: ${(desiredState.desiredState?.agents || []).length} managed agents, ${(desiredState.pendingOperations || []).length} pending operations`
     )
   );
 
+  const degraded = inventoryFailed || memoryFailed;
+  if (degraded) {
+    console.log(chalk.yellow('⚠️  Sync completed in degraded mode — some steps were skipped'));
+  } else {
+    console.log(chalk.green('✅ Sync completed successfully'));
+  }
+
   return {
     success: true,
+    degraded,
     machineId: state.machineId,
     syncedAgents: inventory.agents.length,
     memorySyncedAgents: memorySyncResult
