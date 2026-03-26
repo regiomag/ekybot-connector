@@ -2,6 +2,7 @@ const fetchImpl = global.fetch
   ? (...args) => global.fetch(...args)
   : (...args) => require('node-fetch')(...args);
 const { resolveRelayTimeout, resolveRelayLifecyclePolicy } = require('./relay-continuity');
+const DEFAULT_LOCAL_OPENCLAW_GATEWAY_URL = 'http://127.0.0.1:18789';
 
 function createTimeoutError(stage, timeoutMs) {
   const error = new Error(`Gateway ${stage} timed out after ${timeoutMs}ms`);
@@ -37,13 +38,20 @@ async function withTimeout(promise, timeoutMs, onTimeout) {
 
 class OpenClawGatewayClient {
   constructor(options = {}) {
-    const baseUrl =
+    const configuredBaseUrl =
       options.baseUrl ||
       process.env.OPENCLAW_GATEWAY_URL ||
       process.env.EKYBOT_OPENCLAW_GATEWAY_URL ||
-      'http://127.0.0.1:18789';
+      DEFAULT_LOCAL_OPENCLAW_GATEWAY_URL;
 
-    this.baseUrl = String(baseUrl).replace(/\/$/, '');
+    const normalizedConfiguredBaseUrl = String(configuredBaseUrl).replace(/\/$/, '');
+    this.baseUrl = normalizedConfiguredBaseUrl;
+    this.baseUrls = Array.from(
+      new Set([
+        normalizedConfiguredBaseUrl,
+        DEFAULT_LOCAL_OPENCLAW_GATEWAY_URL,
+      ])
+    );
     this.authToken =
       options.authToken ||
       process.env.OPENCLAW_GATEWAY_TOKEN ||
@@ -114,58 +122,80 @@ class OpenClawGatewayClient {
   }
 
   async sendRelayPrompt({ agentId, sessionKey, prompt, model = null }) {
-    const controller = new AbortController();
+    let lastError = null;
 
-    try {
-      const requestTimeoutMs = this.timeoutMs;
-      const response = await withTimeout(
-        fetchImpl(`${this.baseUrl}/v1/chat/completions`, {
-          method: 'POST',
-          headers: this.buildHeaders(agentId, sessionKey),
-          body: JSON.stringify({
-            model: model || `openclaw:${agentId}`,
-            messages: [{ role: 'user', content: prompt }],
-            stream: false,
-          }),
-          signal: controller.signal,
-        }),
-        requestTimeoutMs,
-        () => controller.abort()
-      );
+    for (const baseUrl of this.baseUrls) {
+      const controller = new AbortController();
 
-      const rawText = await withTimeout(
-        response.text(),
-        requestTimeoutMs,
-        () => controller.abort()
-      ).catch((error) => {
-        if (error?.name === 'RelayTimeoutError') {
-          throw createTimeoutError('response body', requestTimeoutMs);
-        }
-        throw error;
-      });
-
-      if (!response.ok) {
-        throw new Error(`Gateway returned ${response.status}: ${rawText.slice(0, 300)}`);
-      }
-
-      let content = '';
       try {
-        const payload = JSON.parse(rawText);
-        content = this.extractMessageContent(payload);
-      } catch (_error) {
-        content = this.extractSseContent(rawText);
-      }
+        const requestTimeoutMs = this.timeoutMs;
+        const response = await withTimeout(
+          fetchImpl(`${baseUrl}/v1/chat/completions`, {
+            method: 'POST',
+            headers: this.buildHeaders(agentId, sessionKey),
+            body: JSON.stringify({
+              model: model || `openclaw:${agentId}`,
+              messages: [{ role: 'user', content: prompt }],
+              stream: false,
+            }),
+            signal: controller.signal,
+          }),
+          requestTimeoutMs,
+          () => controller.abort()
+        );
 
-      return {
-        content,
-        rawText,
-      };
-    } catch (error) {
-      if (error?.name === 'AbortError') {
-        throw createTimeoutError('request', this.timeoutMs);
+        const rawText = await withTimeout(
+          response.text(),
+          requestTimeoutMs,
+          () => controller.abort()
+        ).catch((error) => {
+          if (error?.name === 'RelayTimeoutError') {
+            throw createTimeoutError('response body', requestTimeoutMs);
+          }
+          throw error;
+        });
+
+        if (!response.ok) {
+          throw new Error(`Gateway returned ${response.status}: ${rawText.slice(0, 300)}`);
+        }
+
+        let content = '';
+        try {
+          const payload = JSON.parse(rawText);
+          content = this.extractMessageContent(payload);
+        } catch (_error) {
+          content = this.extractSseContent(rawText);
+        }
+
+        if (baseUrl !== this.baseUrl) {
+          console.warn(
+            `[relay] gateway fallback succeeded via ${baseUrl} for session=${sessionKey}`
+          );
+        }
+
+        return {
+          content,
+          rawText,
+        };
+      } catch (error) {
+        lastError = error;
+        if (error?.name === 'AbortError') {
+          lastError = createTimeoutError('request', this.timeoutMs);
+        }
+
+        const message = lastError instanceof Error ? lastError.message : String(lastError);
+        const isLastCandidate = baseUrl === this.baseUrls[this.baseUrls.length - 1];
+        if (isLastCandidate || !message.includes('401')) {
+          throw lastError;
+        }
+
+        console.warn(
+          `[relay] gateway fallback from ${baseUrl} to ${this.baseUrls[this.baseUrls.indexOf(baseUrl) + 1]} after ${message}`
+        );
       }
-      throw error;
     }
+
+    throw lastError || new Error('Relay gateway dispatch failed');
   }
 }
 
