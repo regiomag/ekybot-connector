@@ -13,6 +13,46 @@ const {
 } = require('../src');
 const { buildCompanionRuntimeState } = require('../src/companion-runtime-state');
 
+function readNestedValue(source, path) {
+  return path.reduce((current, key) => {
+    if (!current || typeof current !== 'object' || !(key in current)) {
+      return null;
+    }
+    return current[key];
+  }, source);
+}
+
+function normalizeString(value) {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function resolveGatewayOptions(configManager) {
+  let config = null;
+  try {
+    config = configManager.readConfig();
+  } catch (_error) {
+    config = null;
+  }
+
+  const baseUrl = normalizeString(process.env.OPENCLAW_GATEWAY_URL)
+    || normalizeString(process.env.EKYBOT_OPENCLAW_GATEWAY_URL)
+    || normalizeString(readNestedValue(config, ['gateway', 'baseUrl']))
+    || normalizeString(readNestedValue(config, ['gateway', 'url']))
+    || normalizeString(readNestedValue(config, ['server', 'baseUrl']))
+    || normalizeString(readNestedValue(config, ['server', 'url']))
+    || undefined;
+
+  const authToken = normalizeString(process.env.OPENCLAW_GATEWAY_TOKEN)
+    || normalizeString(process.env.EKYBOT_OPENCLAW_GATEWAY_TOKEN)
+    || normalizeString(process.env.EKYBOT_GATEWAY_TOKEN)
+    || normalizeString(readNestedValue(config, ['gateway', 'auth', 'token']))
+    || normalizeString(readNestedValue(config, ['gateway', 'token']))
+    || normalizeString(readNestedValue(config, ['auth', 'token']))
+    || undefined;
+
+  return { baseUrl, authToken };
+}
+
 async function reconcileCompanionState() {
   console.log(chalk.blue.bold('🔁 Ekybot Companion Reconcile'));
 
@@ -39,11 +79,12 @@ async function reconcileCompanionState() {
     machineApiKey: state.machineApiKey,
   });
   const configManager = new OpenClawConfigManager();
+  const gatewayOptions = resolveGatewayOptions(configManager);
   const inventoryCollector = new OpenClawInventoryCollector(configManager, {
     machineName: state.machineName,
   });
   const executor = new EkybotCompanionExecutor(apiClient, configManager, stateStore);
-  const relayProcessor = new EkybotCompanionRelayProcessor(apiClient, new OpenClawGatewayClient(), {
+  const relayProcessor = new EkybotCompanionRelayProcessor(apiClient, new OpenClawGatewayClient(gatewayOptions), {
     stateStore,
     inventoryCollector,
     machineId: state.machineId,
