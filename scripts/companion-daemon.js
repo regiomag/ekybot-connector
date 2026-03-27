@@ -3,6 +3,7 @@
 require('../src/load-env')();
 const chalk = require('chalk');
 const reconcileCompanionState = require('./companion-reconcile');
+const { EkybotCompanionStateStore, EkybotCompanionRelaySocket } = require('../src');
 
 const DEFAULT_INTERVAL_MS = 30_000;
 
@@ -21,10 +22,30 @@ async function runDaemon() {
   const once = process.argv.includes('--once');
   let stopRequested = false;
   let cycle = 0;
+  let running = false;
+  let pendingReason = null;
+  let intervalId = null;
+  const stateStore = new EkybotCompanionStateStore();
+  const state = stateStore.load();
+  const relaySocket =
+    !once && state?.machineId && state?.machineApiKey
+      ? new EkybotCompanionRelaySocket({
+          baseUrl: process.env.EKYBOT_RELAY_PUSH_URL || process.env.EKYBOT_APP_URL || state.baseUrl,
+          machineId: state.machineId,
+          machineApiKey: state.machineApiKey,
+          onWake: async (message) => {
+            requestCycle(`relay-wake:${message.notificationId || 'unknown'}`);
+          },
+        })
+      : null;
 
   const requestStop = (signal) => {
     stopRequested = true;
     console.log(chalk.yellow(`\nReceived ${signal}, stopping companion daemon...`));
+    if (intervalId) {
+      clearInterval(intervalId);
+    }
+    relaySocket?.stop();
   };
 
   process.on('SIGINT', () => requestStop('SIGINT'));
@@ -39,10 +60,18 @@ async function runDaemon() {
     )
   );
 
-  while (!stopRequested) {
+  const runCycle = async (reason) => {
+    if (running || stopRequested) {
+      if (!stopRequested) {
+        pendingReason = reason;
+      }
+      return;
+    }
+
+    running = true;
     cycle += 1;
     const startedAt = new Date();
-    console.log(chalk.blue(`\n[Cycle ${cycle}] ${startedAt.toISOString()}`));
+    console.log(chalk.blue(`\n[Cycle ${cycle}] ${startedAt.toISOString()} reason=${reason}`));
 
     try {
       await reconcileCompanionState();
@@ -52,11 +81,34 @@ async function runDaemon() {
       console.error(chalk.red(`[Cycle ${cycle}] Companion reconcile failed: ${message}`));
     }
 
-    if (once || stopRequested) {
-      break;
-    }
+    running = false;
 
-    await sleep(intervalMs);
+    if (pendingReason && !stopRequested) {
+      const nextReason = pendingReason;
+      pendingReason = null;
+      setImmediate(() => {
+        void runCycle(nextReason);
+      });
+    }
+  };
+
+  const requestCycle = (reason) => {
+    void runCycle(reason);
+  };
+
+  relaySocket?.connect();
+
+  if (once) {
+    await runCycle('once');
+  } else {
+    requestCycle('startup');
+    intervalId = setInterval(() => {
+      requestCycle('interval');
+    }, intervalMs);
+
+    while (!stopRequested) {
+      await sleep(1_000);
+    }
   }
 
   console.log(chalk.green('Companion daemon stopped.'));
