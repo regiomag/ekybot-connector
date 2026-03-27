@@ -250,10 +250,11 @@ class EkybotCompanionRelayProcessor {
     });
     const prompt = this.buildRelayPrompt(notification);
     const targetModel = typeof target.model === 'string' && target.model.trim() ? target.model.trim() : null;
+    const gatewayModel = `openclaw/${targetAgentId}`;
 
     console.log(
       chalk.gray(
-        `[relay] ${notification.id} ${type} source=#${sourceChannel} targetAgent=${targetAgentId} targetChannel=#${targetChannel} session=${sessionKey} model=${targetModel || `openclaw:${targetAgentId}`}`
+        `[relay] ${notification.id} ${type} source=#${sourceChannel} targetAgent=${targetAgentId} targetChannel=#${targetChannel} session=${sessionKey} gatewayModel=${gatewayModel} targetModel=${targetModel || 'unknown'}`
       )
     );
 
@@ -285,7 +286,7 @@ class EkybotCompanionRelayProcessor {
       agentId: targetAgentId,
       sessionKey,
       prompt,
-      model: targetModel,
+      model: gatewayModel,
     });
 
     const cleanedReply = this.cleanReply(gatewayResult.content);
