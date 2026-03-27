@@ -30,6 +30,10 @@ function logContinuityCorrelation(event, payload) {
   console.log(`[continuity-test] ${event} ${JSON.stringify(payload)}`);
 }
 
+function logRelayPublish(event, payload) {
+  console.log(`[relay:publish] ${event} ${JSON.stringify(payload)}`);
+}
+
 function buildRelaySessionKey({ targetAgentId, targetChannel, isContinuityDelayTest }) {
   const base = `agent:${targetAgentId}:${OPENCLAW_RELAY_SESSION_NAMESPACE}:${targetChannel}`;
   return isContinuityDelayTest ? `${base}:continuity-test` : base;
@@ -306,19 +310,77 @@ class EkybotCompanionRelayProcessor {
       });
       await this.sendRuntimeHeartbeat();
 
-      await this.apiClient.postRelayMessage(machineId, {
+      const publishPayload = {
         notificationId: notification.id,
         channelKey: sourceChannel,
         openclawAgentId: targetAgentId,
         content: cleanedReply,
         createdAt: new Date().toISOString(),
+      };
+
+      logRelayPublish('post_start', {
+        machineId,
+        notificationId: notification.id,
+        requestId,
+        targetAgentId,
+        channelKey: sourceChannel,
+        sessionKey,
       });
+
+      try {
+        const publishResult = await this.apiClient.postRelayMessage(machineId, publishPayload);
+        logRelayPublish('post_ok', {
+          machineId,
+          notificationId: notification.id,
+          requestId,
+          targetAgentId,
+          channelKey: sourceChannel,
+          sessionKey,
+          messageId: publishResult?.messageId || null,
+          sessionId: publishResult?.sessionId || null,
+          hostSummaryQueued: Boolean(publishResult?.hostSummaryQueued),
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logRelayPublish('post_failed', {
+          machineId,
+          notificationId: notification.id,
+          requestId,
+          targetAgentId,
+          channelKey: sourceChannel,
+          sessionKey,
+          error: message,
+        });
+        throw error;
+      }
     }
 
-    await this.apiClient.updateRelayNotifications(machineId, {
-      notificationIds: [notification.id],
-      status: 'delivered',
-    });
+    try {
+      await this.apiClient.updateRelayNotifications(machineId, {
+        notificationIds: [notification.id],
+        status: 'delivered',
+      });
+      logRelayPublish('ack_delivered_ok', {
+        machineId,
+        notificationId: notification.id,
+        requestId,
+        targetAgentId,
+        channelKey: sourceChannel,
+        sessionKey,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logRelayPublish('ack_delivered_failed', {
+        machineId,
+        notificationId: notification.id,
+        requestId,
+        targetAgentId,
+        channelKey: sourceChannel,
+        sessionKey,
+        error: message,
+      });
+      throw error;
+    }
 
     this.stateStore?.clearActiveRequest(requestId);
     await this.sendRuntimeHeartbeat();
