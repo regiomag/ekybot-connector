@@ -1,6 +1,6 @@
 {
   "name": "ekybot-connector",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Bridge OpenClaw agents to Ekybot remote management platform",
   "main": "src/index.js",
   "keywords": [

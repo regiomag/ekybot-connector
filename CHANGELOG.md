@@ -15,6 +15,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Unit test coverage
 - Web-based configuration interface
 
+## [1.0.1] - 2026-03-27
+
+### Fixed
+
+- Wake the companion daemon immediately from the relay push socket while keeping polling as a fallback safety net
+- Split relay publish and ack failure logs to speed up runtime diagnosis
+- Force relay gateway dispatches to use the expected `openclaw/<agentId>` model format
+- Prevent empty assistant relay replies from being persisted into history after a failed or empty dispatch
+- Tighten mention relay routing so replies return to the correct targeted agent channel
+
+### Improved
+
+- Harden relay message return-path handling for reply persistence and ack correlation
+- Remove the distracting active-run loading hint in chat during relay testing
+
 ## [1.0.0] - 2026-03-08
 
 ### 🎉 Initial Open Source Release
