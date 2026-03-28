@@ -23,7 +23,7 @@ async function runDaemon() {
   let stopRequested = false;
   let cycle = 0;
   let running = false;
-  const pendingReasons = [];
+  let pendingReason = null;
   let intervalId = null;
   const stateStore = new EkybotCompanionStateStore();
   const state = stateStore.load();
@@ -60,31 +60,10 @@ async function runDaemon() {
     )
   );
 
-  const dequeueNextReason = () => {
-    const wakeIndex = pendingReasons.findIndex((reason) => reason.startsWith('relay-wake:'));
-    if (wakeIndex >= 0) {
-      return pendingReasons.splice(wakeIndex, 1)[0];
-    }
-    return pendingReasons.shift() || null;
-  };
-
-  const enqueueReason = (reason) => {
-    if (reason.startsWith('relay-wake:')) {
-      if (!pendingReasons.includes(reason)) {
-        pendingReasons.push(reason);
-      }
-      return;
-    }
-
-    if (!pendingReasons.includes(reason)) {
-      pendingReasons.push(reason);
-    }
-  };
-
   const runCycle = async (reason) => {
     if (running || stopRequested) {
       if (!stopRequested) {
-        enqueueReason(reason);
+        pendingReason = reason;
       }
       return;
     }
@@ -95,9 +74,7 @@ async function runDaemon() {
     console.log(chalk.blue(`\n[Cycle ${cycle}] ${startedAt.toISOString()} reason=${reason}`));
 
     try {
-      await reconcileCompanionState({
-        relayOnly: reason.startsWith('relay-wake:'),
-      });
+      await reconcileCompanionState();
       console.log(chalk.green(`[Cycle ${cycle}] Companion reconcile finished`));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -106,8 +83,9 @@ async function runDaemon() {
 
     running = false;
 
-    const nextReason = !stopRequested ? dequeueNextReason() : null;
-    if (nextReason) {
+    if (pendingReason && !stopRequested) {
+      const nextReason = pendingReason;
+      pendingReason = null;
       setImmediate(() => {
         void runCycle(nextReason);
       });
