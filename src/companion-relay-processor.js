@@ -9,6 +9,8 @@ const {
 const SENTINEL_REPLIES = ['NO_REPLY', 'HEARTBEAT_OK', 'ANNOUNCE_SKIP'];
 const DEFAULT_RELAY_ATTEMPTS = 2;
 const DEFAULT_RELAY_RETRY_DELAY_MS = 1_000;
+const DEFAULT_RELAY_ACK_ATTEMPTS = 3;
+const DEFAULT_RELAY_ACK_RETRY_DELAY_MS = 1_500;
 const CONTINUITY_DELAY_TEST_MARKER = 'TEST_CONTINUITY_DELAY_70';
 const OPENCLAW_RELAY_SESSION_NAMESPACE = 'ekybot-relay-v2';
 
@@ -156,6 +158,16 @@ class EkybotCompanionRelayProcessor {
     return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_RELAY_RETRY_DELAY_MS;
   }
 
+  relayAckAttemptCount() {
+    const raw = Number.parseInt(process.env.EKYBOT_COMPANION_RELAY_ACK_ATTEMPTS || '', 10);
+    return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_RELAY_ACK_ATTEMPTS;
+  }
+
+  relayAckRetryDelayMs() {
+    const raw = Number.parseInt(process.env.EKYBOT_COMPANION_RELAY_ACK_RETRY_DELAY_MS || '', 10);
+    return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_RELAY_ACK_RETRY_DELAY_MS;
+  }
+
   relayHardTimeoutMs() {
     const raw = Number.parseInt(process.env.EKYBOT_COMPANION_RELAY_HARD_TIMEOUT_MS || '', 10);
     if (Number.isFinite(raw) && raw > 0) {
@@ -222,6 +234,32 @@ class EkybotCompanionRelayProcessor {
     }
 
     throw lastError || new Error('Relay dispatch failed');
+  }
+
+  async updateRelayNotificationsWithRetry(machineId, payload, { notificationId, logLabel }) {
+    const maxAttempts = this.relayAckAttemptCount();
+    const retryDelayMs = this.relayAckRetryDelayMs();
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        await this.apiClient.updateRelayNotifications(machineId, payload);
+        return attempt;
+      } catch (error) {
+        lastError = error;
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(
+          chalk.yellow(
+            `! [relay:publish] ${logLabel}_retry ${attempt}/${maxAttempts} ${notificationId}: ${message}`
+          )
+        );
+        if (attempt < maxAttempts) {
+          await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+        }
+      }
+    }
+
+    throw lastError || new Error(`Relay ${logLabel} failed`);
   }
 
   async processNotification(machineId, notification) {
@@ -357,9 +395,12 @@ class EkybotCompanionRelayProcessor {
     }
 
     try {
-      await this.apiClient.updateRelayNotifications(machineId, {
+      const ackAttempts = await this.updateRelayNotificationsWithRetry(machineId, {
         notificationIds: [notification.id],
         status: 'delivered',
+      }, {
+        notificationId: notification.id,
+        logLabel: 'ack_delivered',
       });
       logRelayPublish('ack_delivered_ok', {
         machineId,
@@ -368,6 +409,7 @@ class EkybotCompanionRelayProcessor {
         targetAgentId,
         channelKey: sourceChannel,
         sessionKey,
+        attempts: ackAttempts,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -434,10 +476,21 @@ class EkybotCompanionRelayProcessor {
           )
         );
         try {
-          await this.apiClient.updateRelayNotifications(machineId, {
+          const ackAttempts = await this.updateRelayNotificationsWithRetry(machineId, {
             notificationIds: [notification.id],
             status: 'failed',
             error: message,
+          }, {
+            notificationId: notification.id,
+            logLabel: 'ack_failed',
+          });
+          logRelayPublish('ack_failed_ok', {
+            machineId,
+            notificationId: notification.id,
+            requestId: resolveRelayRequestId(notification),
+            targetAgentId,
+            channelKey: sourceChannel,
+            attempts: ackAttempts,
           });
         } catch (ackError) {
           const ackMessage = ackError instanceof Error ? ackError.message : String(ackError);
