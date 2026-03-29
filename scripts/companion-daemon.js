@@ -3,7 +3,11 @@
 require('../src/load-env')();
 const chalk = require('chalk');
 const reconcileCompanionState = require('./companion-reconcile');
-const { EkybotCompanionStateStore, EkybotCompanionRelaySocket } = require('../src');
+const {
+  EkybotCompanionApiClient,
+  EkybotCompanionStateStore,
+  EkybotCompanionRelaySocket,
+} = require('../src');
 
 const DEFAULT_INTERVAL_MS = 30_000;
 
@@ -34,6 +38,10 @@ async function runDaemon() {
           machineId: state.machineId,
           machineApiKey: state.machineApiKey,
           onWake: async (message) => {
+            EkybotCompanionApiClient.invalidateDesiredStateCache(
+              process.env.EKYBOT_APP_URL || state.baseUrl,
+              state.machineId
+            );
             requestCycle(`relay-wake:${message.notificationId || 'unknown'}`);
           },
         })

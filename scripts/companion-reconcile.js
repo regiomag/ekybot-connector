@@ -2,6 +2,7 @@
 
 require('../src/load-env')();
 const chalk = require('chalk');
+const crypto = require('crypto');
 const {
   EkybotCompanionApiClient,
   EkybotCompanionExecutor,
@@ -12,6 +13,45 @@ const {
   EkybotCompanionRelayProcessor,
 } = require('../src');
 const { buildCompanionRuntimeState } = require('../src/companion-runtime-state');
+
+const DESIRED_STATE_CACHE_MS = 60_000;
+const INVENTORY_MIN_INTERVAL_MS = 5 * 60 * 1000;
+
+function hashInventoryPayload(inventory) {
+  const normalizedInventory = {
+    machineId: inventory.machineId,
+    machineFingerprint: inventory.machineFingerprint || null,
+    configHash: inventory.configHash || null,
+    rootConfigPath: inventory.rootConfigPath || null,
+    managedFragmentPaths: Array.isArray(inventory.managedFragmentPaths)
+      ? inventory.managedFragmentPaths
+      : [],
+    agents: Array.isArray(inventory.agents) ? inventory.agents : [],
+  };
+
+  return crypto.createHash('sha256').update(JSON.stringify(normalizedInventory)).digest('hex');
+}
+
+function shouldUploadInventory(state, fingerprint, { force = false } = {}) {
+  if (force) {
+    return true;
+  }
+
+  if (!state?.lastInventoryUploadedAt || !state?.lastInventoryPayloadHash) {
+    return true;
+  }
+
+  if (state.lastInventoryPayloadHash !== fingerprint) {
+    return true;
+  }
+
+  const lastUploadedAt = Date.parse(state.lastInventoryUploadedAt);
+  if (!Number.isFinite(lastUploadedAt)) {
+    return true;
+  }
+
+  return Date.now() - lastUploadedAt >= INVENTORY_MIN_INTERVAL_MS;
+}
 
 async function reconcileCompanionState() {
   console.log(chalk.blue.bold('🔁 Ekybot Companion Reconcile'));
@@ -56,13 +96,37 @@ async function reconcileCompanionState() {
     return heartbeat;
   };
 
-  const sendInventorySnapshot = async () => {
+  const sendInventorySnapshot = async (options = {}) => {
+    const currentState = stateStore.load() || state;
     const inventory = inventoryCollector.toMachineInventoryPayload(state.machineId);
+    const fingerprint = hashInventoryPayload(inventory);
+
+    if (!shouldUploadInventory(currentState, fingerprint, options)) {
+      return {
+        inventory,
+        fingerprint,
+        uploaded: false,
+      };
+    }
+
     await apiClient.uploadInventory(state.machineId, inventory);
-    return inventory;
+    const uploadedAt = new Date().toISOString();
+    stateStore.merge({
+      lastInventoryUploadedAt: uploadedAt,
+      lastInventoryHash: inventory.configHash,
+      lastInventoryPayloadHash: fingerprint,
+    });
+
+    return {
+      inventory,
+      fingerprint,
+      uploaded: true,
+    };
   };
 
-  const initialDesiredState = await apiClient.fetchDesiredState(state.machineId);
+  const initialDesiredState = await apiClient.fetchDesiredStateCached(state.machineId, {
+    maxAgeMs: DESIRED_STATE_CACHE_MS,
+  });
   const runtimeBefore = stateStore.load() || state;
   await apiClient.sendHeartbeat(
     state.machineId,
@@ -84,18 +148,34 @@ async function reconcileCompanionState() {
     )
   );
 
-  const firstInventory = await sendInventorySnapshot();
+  const firstInventoryResult = await sendInventorySnapshot();
   stateStore.merge({
     lastDesiredSyncAt: startedAt,
-    lastInventoryUploadedAt: startedAt,
-    lastInventoryHash: firstInventory.configHash,
+    ...(firstInventoryResult.uploaded
+      ? {}
+      : {
+          lastInventoryHash: firstInventoryResult.inventory.configHash,
+          lastInventoryPayloadHash: firstInventoryResult.fingerprint,
+        }),
   });
 
-  const applyResult = await executor.applyDesiredState(state.machineId);
+  const applyResult = await executor.applyDesiredState(state.machineId, {
+    prefetchedDesiredState: initialDesiredState,
+  });
 
-  const secondInventory = await sendInventorySnapshot();
+  const secondInventoryResult = await sendInventorySnapshot({
+    force: applyResult.implicitSyncApplied || applyResult.appliedOperationIds.length > 0,
+  });
   const finishedAt = new Date().toISOString();
-  const finalDesiredState = await apiClient.fetchDesiredState(state.machineId);
+  const shouldRefreshDesiredState =
+    applyResult.implicitSyncApplied ||
+    applyResult.appliedOperationIds.length > 0 ||
+    (initialDesiredState.pendingOperations || []).length > 0;
+  const finalDesiredState = shouldRefreshDesiredState
+    ? await apiClient.fetchDesiredStateCached(state.machineId, {
+        forceRefresh: true,
+      })
+    : initialDesiredState;
   const finalPendingOperationCount = (finalDesiredState.pendingOperations || []).filter(
     (operation) => operation.status === 'pending' || operation.status === 'in_progress'
   ).length;
@@ -109,8 +189,12 @@ async function reconcileCompanionState() {
 
   stateStore.merge({
     lastDesiredSyncAt: finishedAt,
-    lastInventoryUploadedAt: finishedAt,
-    lastInventoryHash: secondInventory.configHash,
+    ...(secondInventoryResult.uploaded
+      ? {}
+      : {
+          lastInventoryHash: secondInventoryResult.inventory.configHash,
+          lastInventoryPayloadHash: secondInventoryResult.fingerprint,
+        }),
     lastReconciledAt: finishedAt,
     driftDetected,
     driftReason,
@@ -148,6 +232,11 @@ async function reconcileCompanionState() {
     console.log(chalk.green('✓ Desired state changes were synced to the managed fragment'));
   }
   console.log(chalk.gray(`Managed agents written: ${(applyResult.desiredState?.agents || []).length}`));
+  console.log(
+    chalk.gray(
+      `Inventory uploads: first=${firstInventoryResult.uploaded ? 'sent' : 'skipped'} second=${secondInventoryResult.uploaded ? 'sent' : 'skipped'}`
+    )
+  );
   console.log(chalk.gray(`Pending operations remaining: ${finalPendingOperationCount}`));
   if (relayResult.fetched > 0) {
     console.log(

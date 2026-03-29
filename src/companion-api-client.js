@@ -4,6 +4,8 @@ const fetchImpl = global.fetch
   ? (...args) => global.fetch(...args)
   : (...args) => require('node-fetch')(...args);
 
+const desiredStateCache = new Map();
+
 class EkybotCompanionApiClient {
   constructor(options = {}) {
     this.baseUrl = (options.baseUrl || process.env.EKYBOT_APP_URL || 'https://www.ekybot.com')
@@ -115,6 +117,36 @@ class EkybotCompanionApiClient {
 
   async fetchDesiredState(machineId) {
     return this.request('GET', `/api/companion/machines/${machineId}/desired-state`);
+  }
+
+  async fetchDesiredStateCached(machineId, options = {}) {
+    const { maxAgeMs = 0, forceRefresh = false } = options;
+    const cacheKey = `${this.baseUrl}:${machineId}`;
+    const cachedEntry = desiredStateCache.get(cacheKey);
+
+    if (
+      !forceRefresh &&
+      maxAgeMs > 0 &&
+      cachedEntry &&
+      Date.now() - cachedEntry.cachedAt < maxAgeMs
+    ) {
+      return cachedEntry.payload;
+    }
+
+    const payload = await this.fetchDesiredState(machineId);
+    desiredStateCache.set(cacheKey, {
+      payload,
+      cachedAt: Date.now(),
+    });
+    return payload;
+  }
+
+  invalidateDesiredStateCache(machineId) {
+    EkybotCompanionApiClient.invalidateDesiredStateCache(this.baseUrl, machineId);
+  }
+
+  static invalidateDesiredStateCache(baseUrl, machineId) {
+    desiredStateCache.delete(`${String(baseUrl || '').replace(/\/$/, '')}:${machineId}`);
   }
 
   async syncMachineMemory(machineId, payload) {

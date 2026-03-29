@@ -13,13 +13,13 @@ class EkybotCompanionExecutor {
     return crypto.createHash('sha256').update(value).digest('hex');
   }
 
-  async applyDesiredState(machineId) {
+  async applyDesiredState(machineId, options = {}) {
     const applyStartedAt = new Date().toISOString();
     this.stateStore.merge({
       lastApplyStartedAt: applyStartedAt,
     });
 
-    const response = await this.apiClient.fetchDesiredState(machineId);
+    const response = options.prefetchedDesiredState || (await this.apiClient.fetchDesiredState(machineId));
     const desiredState = response?.desiredState;
     const pendingOperations = response?.pendingOperations || [];
 
