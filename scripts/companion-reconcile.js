@@ -14,7 +14,7 @@ const {
 } = require('../src');
 const { buildCompanionRuntimeState } = require('../src/companion-runtime-state');
 
-const DESIRED_STATE_CACHE_MS = 60_000;
+const DESIRED_STATE_CACHE_MS = 10_000;
 const INVENTORY_MIN_INTERVAL_MS = 5 * 60 * 1000;
 
 function hashInventoryPayload(inventory) {
