@@ -6,6 +6,10 @@ const fetchImpl = global.fetch
 
 const desiredStateCache = new Map();
 
+function resolveDesiredStateCacheKey(baseUrl, machineId) {
+  return `${String(baseUrl || '').replace(/\/$/, '')}:${machineId}`;
+}
+
 class EkybotCompanionApiClient {
   constructor(options = {}) {
     this.baseUrl = (options.baseUrl || process.env.EKYBOT_APP_URL || 'https://www.ekybot.com')
@@ -131,12 +135,90 @@ class EkybotCompanionApiClient {
   }
 
   async fetchDesiredState(machineId) {
-    return this.request('GET', `/api/companion/machines/${machineId}/desired-state`);
+    const cacheKey = resolveDesiredStateCacheKey(this.baseUrl, machineId);
+    const cachedEntry = desiredStateCache.get(cacheKey);
+    const extraHeaders = {};
+
+    if (cachedEntry?.etag) {
+      extraHeaders['If-None-Match'] = cachedEntry.etag;
+    }
+
+    const controller = new AbortController();
+    const timeoutMs = this.requestTimeoutMs;
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    let response;
+
+    try {
+      response = await fetchImpl(`${this.baseUrl}/api/companion/machines/${machineId}/desired-state`, {
+        method: 'GET',
+        headers: this.buildHeaders(extraHeaders),
+        signal: controller.signal,
+      });
+    } catch (err) {
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        throw new Error(`Companion API request timeout on GET /api/companion/machines/${machineId}/desired-state (${Math.round(timeoutMs / 1000)}s)`);
+      }
+      throw err;
+    }
+
+    clearTimeout(timeoutId);
+
+    if (response.status === 304 && cachedEntry?.payload) {
+      desiredStateCache.set(cacheKey, {
+        ...cachedEntry,
+        cachedAt: Date.now(),
+      });
+      return cachedEntry.payload;
+    }
+
+    const rawText = await response.text();
+    const contentType = response.headers.get('content-type') || '';
+    const isJson = contentType.toLowerCase().includes('application/json');
+    let payload = null;
+    if (rawText && isJson) {
+      try {
+        payload = JSON.parse(rawText);
+      } catch (_error) {
+        throw new Error(
+          `Companion API request failed on GET /api/companion/machines/${machineId}/desired-state: invalid JSON response (${contentType})`
+        );
+      }
+    }
+
+    if (!response.ok) {
+      if (!isJson) {
+        const preview = rawText.replace(/\s+/g, ' ').slice(0, 160);
+        throw new Error(
+          `Companion API request failed on GET /api/companion/machines/${machineId}/desired-state: ${response.status} ${response.statusText} (content-type: ${contentType || 'unknown'}, auth: ${this.getAuthMode()}, body: ${preview})`
+        );
+      }
+      const message = payload?.error || payload?.message || `${response.status} ${response.statusText}`;
+      const details = payload?.details ? ` | details: ${JSON.stringify(payload.details)}` : '';
+      throw new Error(
+        `Companion API request failed on GET /api/companion/machines/${machineId}/desired-state: ${message}${details}`
+      );
+    }
+
+    if (rawText && !isJson) {
+      const preview = rawText.replace(/\s+/g, ' ').slice(0, 160);
+      throw new Error(
+        `Companion API request failed on GET /api/companion/machines/${machineId}/desired-state: expected JSON but received ${contentType || 'unknown'} (auth: ${this.getAuthMode()}, body: ${preview})`
+      );
+    }
+
+    desiredStateCache.set(cacheKey, {
+      payload,
+      cachedAt: Date.now(),
+      etag: response.headers.get('etag'),
+    });
+
+    return payload;
   }
 
   async fetchDesiredStateCached(machineId, options = {}) {
     const { maxAgeMs = 0, forceRefresh = false } = options;
-    const cacheKey = `${this.baseUrl}:${machineId}`;
+    const cacheKey = resolveDesiredStateCacheKey(this.baseUrl, machineId);
     const cachedEntry = desiredStateCache.get(cacheKey);
 
     if (
@@ -161,7 +243,7 @@ class EkybotCompanionApiClient {
   }
 
   static invalidateDesiredStateCache(baseUrl, machineId) {
-    desiredStateCache.delete(`${String(baseUrl || '').replace(/\/$/, '')}:${machineId}`);
+    desiredStateCache.delete(resolveDesiredStateCacheKey(baseUrl, machineId));
   }
 
   async syncMachineMemory(machineId, payload) {
