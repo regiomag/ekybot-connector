@@ -15,6 +15,8 @@ class EkybotCompanionApiClient {
     this.machineApiKey = options.machineApiKey || process.env.EKYBOT_COMPANION_API_KEY || null;
     this.registrationToken =
       options.registrationToken || process.env.EKYBOT_COMPANION_REGISTRATION_TOKEN || null;
+    const envTimeout = parseInt(process.env.EKYBOT_COMPANION_API_TIMEOUT_MS, 10);
+    this.requestTimeoutMs = (options.requestTimeoutMs || (Number.isFinite(envTimeout) && envTimeout > 0 ? envTimeout : 30000));
   }
 
   buildHeaders(extraHeaders = {}, authModeOverride = null) {
@@ -52,7 +54,8 @@ class EkybotCompanionApiClient {
 
   async request(method, pathname, data = null, extraHeaders = {}, authModeOverride = null) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    const timeoutMs = this.requestTimeoutMs;
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     let response;
     try {
       response = await fetchImpl(`${this.baseUrl}${pathname}`, {
@@ -64,7 +67,7 @@ class EkybotCompanionApiClient {
     } catch (err) {
       clearTimeout(timeoutId);
       if (err.name === 'AbortError') {
-        throw new Error(`Companion API request timeout on ${method} ${pathname} (30s)`);
+        throw new Error(`Companion API request timeout on ${method} ${pathname} (${Math.round(timeoutMs / 1000)}s)`);
       }
       throw err;
     }
