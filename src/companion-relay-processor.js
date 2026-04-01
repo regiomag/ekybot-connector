@@ -36,6 +36,10 @@ function logRelayPublish(event, payload) {
   console.log(`[relay:publish] ${event} ${JSON.stringify(payload)}`);
 }
 
+function logRelayStep(event, payload) {
+  console.log(`[relay][step] ${event} ${JSON.stringify(payload)}`);
+}
+
 function buildRelaySessionKey({ targetAgentId, targetChannel, isContinuityDelayTest }) {
   const base = `agent:${targetAgentId}:${OPENCLAW_RELAY_SESSION_NAMESPACE}:${targetChannel}`;
   return isContinuityDelayTest ? `${base}:continuity-test` : base;
@@ -312,11 +316,38 @@ class EkybotCompanionRelayProcessor {
     const targetModel = typeof target.model === 'string' && target.model.trim() ? target.model.trim() : null;
     const gatewayModel = `openclaw/${targetAgentId}`;
 
+    logRelayStep('notification_received', {
+      machineId,
+      notificationId: notification?.id || null,
+      requestId,
+      type,
+      sourceChannel,
+      targetAgentId,
+      normalizedTargetChannel,
+      targetChannel,
+      sessionKey,
+      targetModel,
+      gatewayModel,
+    });
+
     console.log(
       chalk.gray(
         `[relay] ${notification.id} ${type} source=#${sourceChannel} targetAgent=${targetAgentId} targetChannel=#${targetChannel} session=${sessionKey} gatewayModel=${gatewayModel} targetModel=${targetModel || 'unknown'}`
       )
     );
+
+    logRelayStep('routing_resolved', {
+      machineId,
+      notificationId: notification.id,
+      requestId,
+      type,
+      sourceChannel,
+      targetAgentId,
+      targetChannel,
+      sessionKey,
+      gatewayModel,
+      targetModel,
+    });
 
     this.stateStore?.upsertActiveRequest({
       requestId,
@@ -325,11 +356,38 @@ class EkybotCompanionRelayProcessor {
       stage: 'claimed',
       lastHeartbeatAt: this.currentHeartbeatTimestamp(),
     });
+    logRelayStep('active_request_claimed', {
+      machineId,
+      notificationId: notification.id,
+      requestId,
+      sourceChannel,
+      targetAgentId,
+    });
+    logRelayStep('heartbeat_before_in_progress_start', {
+      machineId,
+      notificationId: notification.id,
+      requestId,
+    });
     await this.sendRuntimeHeartbeat();
+    logRelayStep('heartbeat_before_in_progress_done', {
+      machineId,
+      notificationId: notification.id,
+      requestId,
+    });
 
+    logRelayStep('mark_in_progress_start', {
+      machineId,
+      notificationId: notification.id,
+      requestId,
+    });
     await this.apiClient.updateRelayNotifications(machineId, {
       notificationIds: [notification.id],
       status: 'in_progress',
+    });
+    logRelayStep('mark_in_progress_done', {
+      machineId,
+      notificationId: notification.id,
+      requestId,
     });
 
     this.stateStore?.upsertActiveRequest({
@@ -339,8 +397,33 @@ class EkybotCompanionRelayProcessor {
       stage: 'running',
       lastHeartbeatAt: this.currentHeartbeatTimestamp(),
     });
+    logRelayStep('active_request_running', {
+      machineId,
+      notificationId: notification.id,
+      requestId,
+      sourceChannel,
+      targetAgentId,
+    });
+    logRelayStep('heartbeat_before_dispatch_start', {
+      machineId,
+      notificationId: notification.id,
+      requestId,
+    });
     await this.sendRuntimeHeartbeat();
+    logRelayStep('heartbeat_before_dispatch_done', {
+      machineId,
+      notificationId: notification.id,
+      requestId,
+    });
 
+    logRelayStep('dispatch_attempt_start', {
+      machineId,
+      notificationId: notification.id,
+      requestId,
+      targetAgentId,
+      sessionKey,
+      gatewayModel,
+    });
     const gatewayResult = await this.sendRelayPromptWithRetry({
       notificationId: notification.id,
       agentId: targetAgentId,
@@ -348,8 +431,25 @@ class EkybotCompanionRelayProcessor {
       prompt,
       model: gatewayModel,
     });
+    logRelayStep('dispatch_attempt_done', {
+      machineId,
+      notificationId: notification.id,
+      requestId,
+      targetAgentId,
+      sessionKey,
+      replyChars: String(gatewayResult?.content || '').length,
+    });
 
     const cleanedReply = this.cleanReply(gatewayResult.content);
+    logRelayStep('reply_cleaned', {
+      machineId,
+      notificationId: notification.id,
+      requestId,
+      targetAgentId,
+      rawReplyChars: String(gatewayResult?.content || '').length,
+      cleanedReplyChars: cleanedReply.length,
+      hasReply: Boolean(cleanedReply),
+    });
     if (isContinuityDelayTest) {
       logContinuityCorrelation('final_reply_immediate', {
         requestId,
@@ -369,7 +469,24 @@ class EkybotCompanionRelayProcessor {
         stage: 'publishing',
         lastHeartbeatAt: this.currentHeartbeatTimestamp(),
       });
+      logRelayStep('active_request_publishing', {
+        machineId,
+        notificationId: notification.id,
+        requestId,
+        sourceChannel,
+        targetAgentId,
+      });
+      logRelayStep('heartbeat_before_publish_start', {
+        machineId,
+        notificationId: notification.id,
+        requestId,
+      });
       await this.sendRuntimeHeartbeat();
+      logRelayStep('heartbeat_before_publish_done', {
+        machineId,
+        notificationId: notification.id,
+        requestId,
+      });
 
       const publishPayload = {
         notificationId: notification.id,
@@ -388,8 +505,25 @@ class EkybotCompanionRelayProcessor {
         sessionKey,
       });
 
+      logRelayStep('post_relay_message_start', {
+        machineId,
+        notificationId: notification.id,
+        requestId,
+        sourceChannel,
+        targetAgentId,
+        cleanedReplyChars: cleanedReply.length,
+      });
       try {
         const publishResult = await this.apiClient.postRelayMessage(machineId, publishPayload);
+        logRelayStep('post_relay_message_done', {
+          machineId,
+          notificationId: notification.id,
+          requestId,
+          sourceChannel,
+          targetAgentId,
+          messageId: publishResult?.messageId || null,
+          sessionId: publishResult?.sessionId || null,
+        });
         logRelayPublish('post_ok', {
           machineId,
           notificationId: notification.id,
@@ -416,6 +550,12 @@ class EkybotCompanionRelayProcessor {
       }
     }
 
+    logRelayStep('mark_delivered_start', {
+      machineId,
+      notificationId: notification.id,
+      requestId,
+      hasReply: Boolean(cleanedReply),
+    });
     try {
       const ackAttempts = await this.updateRelayNotificationsWithRetry(machineId, {
         notificationIds: [notification.id],
@@ -423,6 +563,13 @@ class EkybotCompanionRelayProcessor {
       }, {
         notificationId: notification.id,
         logLabel: 'ack_delivered',
+      });
+      logRelayStep('mark_delivered_done', {
+        machineId,
+        notificationId: notification.id,
+        requestId,
+        hasReply: Boolean(cleanedReply),
+        attempts: ackAttempts,
       });
       logRelayPublish('ack_delivered_ok', {
         machineId,
@@ -448,7 +595,22 @@ class EkybotCompanionRelayProcessor {
     }
 
     this.stateStore?.clearActiveRequest(requestId);
+    logRelayStep('active_request_cleared', {
+      machineId,
+      notificationId: notification.id,
+      requestId,
+    });
+    logRelayStep('heartbeat_after_delivery_start', {
+      machineId,
+      notificationId: notification.id,
+      requestId,
+    });
     await this.sendRuntimeHeartbeat();
+    logRelayStep('heartbeat_after_delivery_done', {
+      machineId,
+      notificationId: notification.id,
+      requestId,
+    });
 
     return {
       delivered: true,
