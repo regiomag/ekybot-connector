@@ -41,6 +41,30 @@ function buildRelaySessionKey({ targetAgentId, targetChannel, isContinuityDelayT
   return isContinuityDelayTest ? `${base}:continuity-test` : base;
 }
 
+function normalizeSentinelText(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[.!?…\s]+$/g, '');
+}
+
+function isSilentRelayReply(value) {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) {
+    return true;
+  }
+
+  if (
+    SENTINEL_REPLIES.includes(trimmed) ||
+    SENTINEL_REPLIES.some((sentinel) => trimmed.startsWith(sentinel))
+  ) {
+    return true;
+  }
+
+  const normalized = normalizeSentinelText(trimmed);
+  return normalized.startsWith('no response from');
+}
+
 class EkybotCompanionRelayProcessor {
   constructor(apiClient, gatewayClient, options = {}) {
     this.apiClient = apiClient;
@@ -131,21 +155,19 @@ class EkybotCompanionRelayProcessor {
   }
 
   cleanReply(rawContent) {
-    const trimmed = String(rawContent || '').trim();
-    if (!trimmed) {
+    if (isSilentRelayReply(rawContent)) {
       return '';
     }
 
-    if (SENTINEL_REPLIES.includes(trimmed) || SENTINEL_REPLIES.some((sentinel) => trimmed.startsWith(sentinel))) {
-      return '';
-    }
-
-    return trimmed
+    const cleaned = String(rawContent || '')
+      .trim()
       .replace(/^\*\*[^\n]+ → #[a-zA-Z0-9_-]+\*\*\n*/m, '')
       .replace(/^\[CC INTER-AGENT\].*?\n*/m, '')
       .replace(/^\[CHANNEL DISPATCH\].*?\n*/m, '')
       .replace(/^📨 \[[^\]]+\]\s*/m, '')
       .trim();
+
+    return isSilentRelayReply(cleaned) ? '' : cleaned;
   }
 
   relayAttemptCount() {
