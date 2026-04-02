@@ -280,13 +280,10 @@ class EkybotCompanionRelayProcessor {
 
     const raw = fs.readFileSync(sessionsPath, 'utf8');
     const parsed = JSON.parse(raw);
-    const entries = Array.isArray(parsed?.entries)
-      ? parsed.entries
-      : parsed?.entries && typeof parsed.entries === 'object'
-        ? Object.values(parsed.entries)
-        : [];
 
-    const match = entries.find((entry) => entry?.key === sessionKey);
+    // sessions.json format: flat dict { [sessionKey]: sessionData }
+    // No "entries" wrapper, no "key" field inside values.
+    const match = parsed?.[sessionKey];
     if (!match) {
       return {
         found: false,
