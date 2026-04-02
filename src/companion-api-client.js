@@ -261,6 +261,10 @@ class EkybotCompanionApiClient {
     return this.request('PATCH', `/api/companion/machines/${machineId}/relay`, payload);
   }
 
+  async sendBudgetAlert(machineId, payload) {
+    return this.request('POST', `/api/companion/machines/${machineId}/budget-alert`, payload);
+  }
+
   async postRelayMessage(machineId, payload) {
     return this.request('POST', `/api/companion/machines/${machineId}/relay/messages`, payload);
   }

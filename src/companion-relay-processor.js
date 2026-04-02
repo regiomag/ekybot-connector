@@ -281,9 +281,10 @@ class EkybotCompanionRelayProcessor {
     const raw = fs.readFileSync(sessionsPath, 'utf8');
     const parsed = JSON.parse(raw);
 
-    // sessions.json format: flat dict { [sessionKey]: sessionData }
-    // No "entries" wrapper, no "key" field inside values.
-    const match = parsed?.[sessionKey];
+    const match =
+      parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? parsed?.[sessionKey]
+        : null;
     if (!match) {
       return {
         found: false,
@@ -613,6 +614,37 @@ class EkybotCompanionRelayProcessor {
         estimatedCostUsd: sessionBudgetCheck.estimatedCostUsd ?? null,
         maxBudgetPerSession: sessionBudgetCheck.maxBudgetPerSession ?? null,
       });
+
+      try {
+        const shouldNotify =
+          !sessionBudgetCheck.notifyOn ||
+          ['all', 'email', 'budget', 'budget_blocked'].includes(String(sessionBudgetCheck.notifyOn).toLowerCase());
+
+        if (shouldNotify && this.apiClient?.sendBudgetAlert) {
+          await this.apiClient.sendBudgetAlert(machineId, {
+            notificationId: notification.id,
+            requestId,
+            targetAgentId,
+            sessionKey,
+            action: actionLabel,
+            estimatedCostUsd: sessionBudgetCheck.estimatedCostUsd ?? null,
+            maxBudgetPerSession: sessionBudgetCheck.maxBudgetPerSession ?? null,
+          });
+          logRelayStep('session_budget_alert_sent', {
+            machineId,
+            notificationId: notification.id,
+            requestId,
+            targetAgentId,
+            sessionKey,
+          });
+        }
+      } catch (alertError) {
+        console.warn(
+          chalk.yellow(
+            `[budget] failed to send budget alert for ${sessionKey}: ${alertError instanceof Error ? alertError.message : String(alertError)}`
+          )
+        );
+      }
 
       throw new Error(budgetMessage);
     }
