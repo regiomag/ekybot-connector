@@ -178,24 +178,123 @@ class OpenClawConfigManager {
     return { updated: true, includePath, configPath: this.configPath };
   }
 
+  _getRootConfigAgentsList(config) {
+    if (Array.isArray(config?.agents)) {
+      return { agentsList: config.agents, isDirectArray: true };
+    }
+
+    if (Array.isArray(config?.agents?.list)) {
+      return { agentsList: config.agents.list, isDirectArray: false };
+    }
+
+    return { agentsList: [], isDirectArray: false };
+  }
+
+  _getAgentExtrasFromRootConfig(openclawAgentId) {
+    try {
+      const config = this.readConfig();
+      const { agentsList } = this._getRootConfigAgentsList(config);
+      const match = agentsList.find((agent) => {
+        const candidateId = agent?.id || agent?.key || null;
+        return candidateId === openclawAgentId;
+      });
+
+      if (!match || typeof match !== 'object') {
+        return {};
+      }
+
+      const {
+        id,
+        key,
+        name,
+        model,
+        workspace,
+        workspacePath,
+        ...extras
+      } = match;
+
+      return extras;
+    } catch (_error) {
+      return {};
+    }
+  }
+
+  _removeManagedAgentsFromRootConfig(managedAgentIds) {
+    if (!managedAgentIds || managedAgentIds.size === 0) {
+      return { updated: false, removedCount: 0 };
+    }
+
+    try {
+      const config = this.readConfig();
+      const { agentsList, isDirectArray } = this._getRootConfigAgentsList(config);
+
+      if (!Array.isArray(agentsList) || agentsList.length === 0) {
+        return { updated: false, removedCount: 0 };
+      }
+
+      const before = agentsList.length;
+      const filtered = agentsList.filter((agent) => {
+        const agentId = agent?.id || agent?.key || null;
+        return !managedAgentIds.has(agentId);
+      });
+
+      const removedCount = before - filtered.length;
+      if (removedCount === 0) {
+        return { updated: false, removedCount: 0 };
+      }
+
+      if (isDirectArray) {
+        config.agents = filtered;
+      } else if (config?.agents && typeof config.agents === 'object') {
+        config.agents.list = filtered;
+      }
+
+      this.writeConfig(config);
+
+      console.log(
+        chalk.yellow(
+          `⚠ Removed ${removedCount} managed agent(s) from openclaw.json (now in managed fragment only)`
+        )
+      );
+
+      return { updated: true, removedCount };
+    } catch (error) {
+      console.warn(
+        chalk.yellow(`Warning: failed to clean managed agents from root config: ${error.message}`)
+      );
+      return { updated: false, removedCount: 0 };
+    }
+  }
+
   writeManagedFragment(desiredState) {
     const fragmentPath = this.resolveHomePath(
       desiredState.managedFragmentPath || this.getManagedFragmentPath()
     );
 
+    const managedAgentIds = new Set(
+      (desiredState.agents || [])
+        .map((agent) => agent?.openclawAgentId)
+        .filter((agentId) => typeof agentId === 'string' && agentId.trim().length > 0)
+    );
+
     const fragment = {
       agents: {
-        list: (desiredState.agents || []).map((agent) => ({
-          id: agent.openclawAgentId,
-          name: agent.name,
-          model: agent.model,
-          workspace: agent.workspacePath || null,
-        })),
+        list: (desiredState.agents || []).map((agent) => {
+          const baseEntry = {
+            id: agent.openclawAgentId,
+            name: agent.name,
+            model: agent.model,
+            workspace: agent.workspacePath || null,
+          };
+          const rootExtras = this._getAgentExtrasFromRootConfig(agent.openclawAgentId);
+          return { ...rootExtras, ...baseEntry };
+        }),
       },
     };
 
     const content = `${JSON.stringify(fragment, null, 2)}\n`;
     this.writeFileAtomic(fragmentPath, content);
+    this._removeManagedAgentsFromRootConfig(managedAgentIds);
 
     return {
       fragmentPath,
