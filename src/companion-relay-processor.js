@@ -1,4 +1,8 @@
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const chalk = require('chalk');
+const OpenClawConfigManager = require('./config-manager');
 const {
   DEFAULT_RELAY_HARD_TIMEOUT_MS,
   RELAY_PUBLISH_GRACE_MS,
@@ -76,6 +80,7 @@ class EkybotCompanionRelayProcessor {
     this.stateStore = options.stateStore || null;
     this.inventoryCollector = options.inventoryCollector || null;
     this.machineId = options.machineId || null;
+    this.configManager = options.configManager || new OpenClawConfigManager();
   }
 
   currentHeartbeatTimestamp() {
@@ -208,6 +213,155 @@ class EkybotCompanionRelayProcessor {
     }
 
     return resolveRelayTimeout(null, Math.max(DEFAULT_RELAY_HARD_TIMEOUT_MS, lifecycleFailedWithGrace));
+  }
+
+  readCompanionBudgetConfig() {
+    let configBudget = {};
+    try {
+      const config = this.configManager?.readConfig?.();
+      const budgets = config?.companion?.budgets;
+      if (budgets && typeof budgets === 'object') {
+        configBudget = budgets;
+      }
+    } catch (_error) {
+      // Fail-soft: env overrides still apply.
+    }
+
+    const envBudgetRaw =
+      process.env.EKYBOT_COMPANION_MAX_BUDGET_PER_SESSION_USD ||
+      process.env.EKYBOT_COMPANION_MAX_BUDGET_PER_SESSION ||
+      '';
+    const envBudget = Number.parseFloat(envBudgetRaw);
+
+    const maxBudgetPerSession = Number.isFinite(envBudget) && envBudget > 0
+      ? envBudget
+      : Number.isFinite(Number.parseFloat(String(configBudget.maxBudgetPerSession || '')))
+        ? Number.parseFloat(String(configBudget.maxBudgetPerSession))
+        : null;
+
+    const actionRaw =
+      process.env.EKYBOT_COMPANION_MAX_BUDGET_PER_SESSION_ACTION ||
+      configBudget.maxBudgetPerSessionAction ||
+      'block';
+    const action = ['block', 'block+reset', 'warn'].includes(String(actionRaw))
+      ? String(actionRaw)
+      : 'block';
+
+    const notifyOn =
+      process.env.EKYBOT_COMPANION_BUDGET_NOTIFY_ON ||
+      configBudget.notifyOn ||
+      null;
+
+    return {
+      maxBudgetPerSession,
+      action,
+      notifyOn,
+    };
+  }
+
+  resolveOpenClawDataDir() {
+    const configPath = this.configManager?.configPath;
+    if (configPath && typeof configPath === 'string' && configPath.trim()) {
+      return path.dirname(configPath);
+    }
+
+    return path.join(os.homedir(), '.openclaw');
+  }
+
+  readSessionBudgetEntry(agentId, sessionKey) {
+    const sessionsPath = path.join(this.resolveOpenClawDataDir(), 'agents', agentId, 'sessions', 'sessions.json');
+    if (!fs.existsSync(sessionsPath)) {
+      return {
+        found: false,
+        sessionsPath,
+        reason: 'sessions_file_missing',
+      };
+    }
+
+    const raw = fs.readFileSync(sessionsPath, 'utf8');
+    const parsed = JSON.parse(raw);
+    const entries = Array.isArray(parsed?.entries)
+      ? parsed.entries
+      : parsed?.entries && typeof parsed.entries === 'object'
+        ? Object.values(parsed.entries)
+        : [];
+
+    const match = entries.find((entry) => entry?.key === sessionKey);
+    if (!match) {
+      return {
+        found: false,
+        sessionsPath,
+        reason: 'session_entry_missing',
+      };
+    }
+
+    const estimatedCostUsd = Number.parseFloat(String(match?.estimatedCostUsd ?? ''));
+    return {
+      found: true,
+      sessionsPath,
+      estimatedCostUsd: Number.isFinite(estimatedCostUsd) ? estimatedCostUsd : 0,
+      entry: match,
+    };
+  }
+
+  checkSessionBudget(agentId, sessionKey) {
+    const budgetConfig = this.readCompanionBudgetConfig();
+    const maxBudgetPerSession = budgetConfig.maxBudgetPerSession;
+
+    if (!Number.isFinite(maxBudgetPerSession) || maxBudgetPerSession <= 0) {
+      return {
+        allowed: true,
+        enabled: false,
+        action: budgetConfig.action,
+        notifyOn: budgetConfig.notifyOn,
+      };
+    }
+
+    try {
+      const sessionBudget = this.readSessionBudgetEntry(agentId, sessionKey);
+      if (!sessionBudget.found) {
+        return {
+          allowed: true,
+          enabled: true,
+          action: budgetConfig.action,
+          notifyOn: budgetConfig.notifyOn,
+          sessionLookup: sessionBudget,
+        };
+      }
+
+      const exceeded = sessionBudget.estimatedCostUsd >= maxBudgetPerSession;
+      if (!exceeded) {
+        return {
+          allowed: true,
+          enabled: true,
+          action: budgetConfig.action,
+          notifyOn: budgetConfig.notifyOn,
+          estimatedCostUsd: sessionBudget.estimatedCostUsd,
+          maxBudgetPerSession,
+          sessionLookup: sessionBudget,
+        };
+      }
+
+      const shouldAllow = budgetConfig.action === 'warn';
+      return {
+        allowed: shouldAllow,
+        enabled: true,
+        exceeded: true,
+        action: budgetConfig.action,
+        notifyOn: budgetConfig.notifyOn,
+        estimatedCostUsd: sessionBudget.estimatedCostUsd,
+        maxBudgetPerSession,
+        sessionLookup: sessionBudget,
+      };
+    } catch (error) {
+      return {
+        allowed: true,
+        enabled: true,
+        action: budgetConfig.action,
+        notifyOn: budgetConfig.notifyOn,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   async sendRelayPromptWithRetry(params) {
@@ -415,6 +569,56 @@ class EkybotCompanionRelayProcessor {
       notificationId: notification.id,
       requestId,
     });
+
+    const sessionBudgetCheck = this.checkSessionBudget(targetAgentId, sessionKey);
+    logRelayStep('session_budget_checked', {
+      machineId,
+      notificationId: notification.id,
+      requestId,
+      targetAgentId,
+      sessionKey,
+      enabled: sessionBudgetCheck.enabled,
+      allowed: sessionBudgetCheck.allowed,
+      exceeded: Boolean(sessionBudgetCheck.exceeded),
+      action: sessionBudgetCheck.action,
+      estimatedCostUsd: sessionBudgetCheck.estimatedCostUsd ?? null,
+      maxBudgetPerSession: sessionBudgetCheck.maxBudgetPerSession ?? null,
+      notifyOn: sessionBudgetCheck.notifyOn ?? null,
+      sessionLookupReason: sessionBudgetCheck.sessionLookup?.reason || null,
+      budgetReadError: sessionBudgetCheck.error || null,
+    });
+
+    if (sessionBudgetCheck.exceeded) {
+      console.warn(
+        chalk.yellow(
+          `[budget] session budget exceeded for ${sessionKey}: $${sessionBudgetCheck.estimatedCostUsd.toFixed(2)} >= $${sessionBudgetCheck.maxBudgetPerSession.toFixed(2)} action=${sessionBudgetCheck.action}`
+        )
+      );
+    }
+
+    if (!sessionBudgetCheck.allowed) {
+      const actionLabel = sessionBudgetCheck.action || 'block';
+      if (actionLabel === 'block+reset') {
+        console.warn(
+          chalk.yellow(
+            `[budget] block+reset requested for ${sessionKey}, but automatic reset is not implemented yet; blocking dispatch only`
+          )
+        );
+      }
+      const budgetMessage = `SESSION_BUDGET_EXCEEDED (${targetAgentId} ${sessionBudgetCheck.estimatedCostUsd?.toFixed?.(2) ?? '0.00'} >= ${sessionBudgetCheck.maxBudgetPerSession?.toFixed?.(2) ?? '0.00'} USD, action=${actionLabel})`;
+      logRelayStep('session_budget_blocked', {
+        machineId,
+        notificationId: notification.id,
+        requestId,
+        targetAgentId,
+        sessionKey,
+        action: actionLabel,
+        estimatedCostUsd: sessionBudgetCheck.estimatedCostUsd ?? null,
+        maxBudgetPerSession: sessionBudgetCheck.maxBudgetPerSession ?? null,
+      });
+
+      throw new Error(budgetMessage);
+    }
 
     logRelayStep('dispatch_attempt_start', {
       machineId,
