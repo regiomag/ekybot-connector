@@ -1,8 +1,8 @@
-# Ekybot Connector
+# EkyBot Connector
 
-Bridge your local OpenClaw gateway to Ekybot so users can chat with agents from web/mobile with reliable inter-agent routing.
+Bridge your local OpenClaw gateway to EkyBot so users can chat with agents from web/mobile with reliable inter-agent routing.
 
-## What’s new (2026-03)
+## What's new (2026-03)
 
 - Reliable async relay behavior (request accepted quickly, reply arrives when ready)
 - Source-channel return path for mentions/CC
@@ -52,7 +52,7 @@ npm run start
 
 ### 7) First live validation
 
-From Ekybot UI:
+From EkyBot UI:
 1. Send `@Odin test`
 2. Send `@Max test`
 3. Verify:
@@ -67,10 +67,10 @@ If all 3 pass → onboarding complete ✅
 ## Product promise
 
 **OpenClaw = local execution**
-**Ekybot = remote command center**
+**EkyBot = remote command center**
 **Connector = reliable bridge**
 
-For users, this should feel like: **“Connect once, then chat with my team of agents from anywhere.”**
+For users, this should feel like: **"Connect once, then chat with my team of agents from anywhere."**
 
 ## Core commands
 
@@ -119,6 +119,6 @@ npm run logs              # inspect logs
 
 ## Links
 
-- Ekybot: https://www.ekybot.com
+- EkyBot: https://www.ekybot.com
 - ClawHub listing: https://clawhub.ai/regiomag/ekybot-connector
 - Source: https://github.com/regiomag/ekybot-connector
