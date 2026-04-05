@@ -10,10 +10,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Planned
 
 - Configuration preview mode (`--dry-run`)
-- Enhanced error handling and recovery
 - Windows compatibility improvements
-- Unit test coverage
 - Web-based configuration interface
+
+## [1.1.0] - 2026-04-05
+
+### Added
+- Budget guard: per-session cost limit with configurable action (log/block)
+- `companion:install-launchd` for persistent macOS daemon
+- Relay-push wake: immediate dispatch on @mention notification (no 30s poll wait)
+- `companion:apply` command for applying remote config changes
+- Configuration section in README with environment variable docs
+
+### Improved
+- @mention return path: replies consistently land in source channel
+- Host summary skipped for single-target mentions (less noise in UI)
+- Relay session key uses stable namespace (`ekybot-relay-v2`)
+- README rewritten with key features, daemon docs, and budget guard section
+- Generic agent names in onboarding example (no hardcoded agent names)
+
+### Fixed
+- Gateway fallback to localhost on 401 from tunnel
+- Empty assistant replies no longer persisted after failed dispatch
+- Mention relay routing tightened for correct targeted agent channel
 
 ## [1.0.1] - 2026-03-27
 
