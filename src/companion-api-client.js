@@ -1,3 +1,27 @@
+/**
+ * EkyBot Companion API Client
+ *
+ * Reads EKYBOT_APP_URL and EKYBOT_COMPANION_TOKEN (or EKYBOT_COMPANION_API_KEY)
+ * from the local .env.ekybot_companion file to authenticate with the EkyBot
+ * cloud API at https://www.ekybot.com.
+ *
+ * Network calls made by this module (all to EKYBOT_APP_URL):
+ * - POST   /api/companion/machines                          — register machine (enrollment)
+ * - GET    /api/companion/machines                          — list enrolled machines
+ * - POST   /api/companion/machines/:id/heartbeat            — machine health telemetry (see SKILL.md "Telemetry & Privacy")
+ * - POST   /api/companion/machines/:id/inventory            — sync agent list to dashboard
+ * - GET    /api/companion/machines/:id/inventory             — fetch current agent inventory
+ * - GET    /api/companion/machines/:id/desired-state         — pull agent config changes from dashboard
+ * - POST   /api/companion/machines/:id/memory               — sync workspace memory files (see "Memory Sync")
+ * - GET    /api/companion/machines/:id/relay                 — poll for pending @mention messages
+ * - PATCH  /api/companion/machines/:id/relay                 — acknowledge/claim relay notifications
+ * - POST   /api/companion/machines/:id/relay/messages        — post agent reply back to dashboard
+ * - POST   /api/companion/machines/:id/budget-alert          — report budget threshold breach
+ * - PATCH  /api/companion/machines/:id/operations/:opId      — update operation status
+ *
+ * No API keys, raw conversation content, or files outside the agent workspace
+ * are transmitted. See references/security.md for the full data disclosure.
+ */
 const chalk = require('chalk');
 
 const fetchImpl = global.fetch

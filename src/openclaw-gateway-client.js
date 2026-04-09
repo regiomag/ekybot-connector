@@ -1,3 +1,19 @@
+/**
+ * OpenClaw Gateway Client
+ *
+ * Reads OPENCLAW_GATEWAY_URL (defaults to http://127.0.0.1:18789) from
+ * environment to communicate with the LOCAL OpenClaw gateway on the
+ * user's machine.
+ *
+ * This module ONLY communicates with localhost — it does NOT send any
+ * data to external servers. All calls go to the local OpenClaw gateway:
+ * - POST /v1/chat/completions — dispatch @mention messages to local agents
+ *
+ * Authentication uses OPENCLAW_GATEWAY_TOKEN (local gateway token) and
+ * identifies the target agent via x-openclaw-agent-id header.
+ *
+ * See references/security.md for the full architecture diagram.
+ */
 const fetchImpl = global.fetch
   ? (...args) => global.fetch(...args)
   : (...args) => require('node-fetch')(...args);
