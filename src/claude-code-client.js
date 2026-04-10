@@ -104,11 +104,12 @@ async function executeClaudeCode(message, options = {}) {
   return new Promise((resolve, reject) => {
     const args = ['-p', message, '--output-format', 'text'];
 
+    // Use --continue to resume the last conversation in this working directory.
+    // This avoids session lock conflicts that occur with --session-id when
+    // multiple messages arrive before the previous one finishes.
     if (sessionId) {
-      // Claude CLI requires a valid UUID for --session-id
-      const sessionUUID = toUUID(sessionId);
-      args.push('--session-id', sessionUUID);
-      console.log(chalk.gray(`[claude-code] session: ${sessionId} → ${sessionUUID}`));
+      args.push('--continue');
+      console.log(chalk.gray(`[claude-code] using --continue for session continuity (key=${sessionId})`));
     }
 
     // Enrich PATH for macOS LaunchAgent (which has minimal PATH: /usr/bin:/bin:/usr/sbin:/sbin)
