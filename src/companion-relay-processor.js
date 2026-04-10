@@ -670,13 +670,17 @@ class EkybotCompanionRelayProcessor {
 
     if (isClaudeCode) {
       // Route to Claude Code CLI instead of OpenClaw gateway
+      const relayWorkingDir = typeof target.workingDir === 'string' && target.workingDir.trim()
+        ? target.workingDir.trim()
+        : null;
       console.log(
         chalk.cyan(
-          `[relay] ${notification.id} routing to Claude Code CLI (provider=${targetProvider})`
+          `[relay] ${notification.id} routing to Claude Code CLI (provider=${targetProvider} workingDir=${relayWorkingDir || 'env-default'})`
         )
       );
       gatewayResult = await executeClaudeCode(prompt, {
         agentType: targetProvider,
+        workingDir: relayWorkingDir || undefined,
       });
     } else {
       // Default: OpenClaw gateway
