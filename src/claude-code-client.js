@@ -12,6 +12,7 @@
  */
 
 const { spawn } = require('child_process');
+const crypto = require('crypto');
 const chalk = require('chalk');
 const os = require('os');
 const path = require('path');
@@ -19,6 +20,19 @@ const fs = require('fs');
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_OUTPUT_LENGTH = 50_000; // ~50KB max response
+
+/** Convert any string to a deterministic UUID (SHA-256 → UUID v4 format) */
+function toUUID(input) {
+  const hash = crypto.createHash('sha256').update(input).digest('hex');
+  // Format as UUID v4: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
+  return [
+    hash.slice(0, 8),
+    hash.slice(8, 12),
+    '4' + hash.slice(13, 16),
+    ((parseInt(hash[16], 16) & 0x3) | 0x8).toString(16) + hash.slice(17, 20),
+    hash.slice(20, 32),
+  ].join('-');
+}
 
 /** Expand ~ to home directory (spawn/fs don't do shell expansion) */
 function expandTilde(dir) {
@@ -91,7 +105,10 @@ async function executeClaudeCode(message, options = {}) {
     const args = ['-p', message, '--output-format', 'text'];
 
     if (sessionId) {
-      args.push('--session-id', sessionId);
+      // Claude CLI requires a valid UUID for --session-id
+      const sessionUUID = toUUID(sessionId);
+      args.push('--session-id', sessionUUID);
+      console.log(chalk.gray(`[claude-code] session: ${sessionId} → ${sessionUUID}`));
     }
 
     // Enrich PATH for macOS LaunchAgent (which has minimal PATH: /usr/bin:/bin:/usr/sbin:/sbin)
