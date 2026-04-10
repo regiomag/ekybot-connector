@@ -19,6 +19,57 @@ const DEFAULT_RELAY_ACK_RETRY_DELAY_MS = 1_500;
 const CONTINUITY_DELAY_TEST_MARKER = 'TEST_CONTINUITY_DELAY_70';
 const OPENCLAW_RELAY_SESSION_NAMESPACE = 'ekybot-relay-v2';
 
+// File attachment URL patterns (Vercel Blob, Supabase Storage, etc.)
+const ATTACHMENT_URL_REGEX = /https?:\/\/[^\s)]+\.blob\.vercel-storage\.com\/[^\s)]+|https?:\/\/[^\s)]+\.supabase\.co\/storage\/[^\s)]+/g;
+const TEXT_EXTENSIONS = ['.txt', '.md', '.json', '.csv', '.ts', '.tsx', '.js', '.jsx', '.py', '.html', '.css', '.xml', '.yaml', '.yml', '.toml', '.env', '.sh', '.sql', '.prisma', '.graphql'];
+const MAX_INLINE_SIZE = 100_000; // 100KB max per file
+
+async function resolveAttachmentUrls(content) {
+  const urls = content.match(ATTACHMENT_URL_REGEX);
+  if (!urls || urls.length === 0) return content;
+
+  let resolved = content;
+  for (const url of urls) {
+    try {
+      // Determine file extension from URL (strip query params)
+      const urlPath = new URL(url).pathname;
+      const ext = path.extname(urlPath).toLowerCase();
+      const fileName = path.basename(urlPath);
+      const isText = TEXT_EXTENSIONS.includes(ext) || !ext;
+
+      if (!isText) {
+        // For images/binary: download to /tmp and replace URL with local path
+        const tmpPath = path.join(os.tmpdir(), `ekybot-attachment-${Date.now()}-${fileName}`);
+        const response = await fetch(url);
+        if (!response.ok) {
+          console.warn(chalk.yellow(`[relay] attachment fetch failed ${url}: ${response.status}`));
+          continue;
+        }
+        const buffer = Buffer.from(await response.arrayBuffer());
+        fs.writeFileSync(tmpPath, buffer);
+        console.log(chalk.gray(`[relay] attachment saved: ${url} → ${tmpPath} (${buffer.length} bytes)`));
+        resolved = resolved.replace(url, `[Fichier attaché: ${tmpPath}]`);
+      } else {
+        // For text: fetch and inline
+        const response = await fetch(url);
+        if (!response.ok) {
+          console.warn(chalk.yellow(`[relay] attachment fetch failed ${url}: ${response.status}`));
+          continue;
+        }
+        let text = await response.text();
+        if (text.length > MAX_INLINE_SIZE) {
+          text = text.substring(0, MAX_INLINE_SIZE) + '\n\n[Contenu tronqué]';
+        }
+        console.log(chalk.gray(`[relay] attachment inlined: ${url} (${text.length} chars)`));
+        resolved = resolved.replace(url, `\n--- Contenu de ${fileName} ---\n${text}\n--- Fin de ${fileName} ---\n`);
+      }
+    } catch (err) {
+      console.warn(chalk.yellow(`[relay] attachment resolve error ${url}: ${err.message || err}`));
+    }
+  }
+  return resolved;
+}
+
 function normalizeChannelKey(value) {
   return typeof value === 'string' && value.trim() ? value.trim().toLowerCase() : null;
 }
@@ -106,7 +157,7 @@ class EkybotCompanionRelayProcessor {
     }
   }
 
-  buildRelayPrompt(notification) {
+  async buildRelayPrompt(notification) {
     const relay = notification?.relay || {};
     const source = relay.source || {};
     const target = relay.target || {};
@@ -115,11 +166,14 @@ class EkybotCompanionRelayProcessor {
     const sourceAgentName = source.agentName || notification.fromAgentName || source.agentId || 'Un autre agent';
     const targetAgentName = target.name || target.agentId || notification?.toAgentId || 'Agent cible';
     const sourceChannel = normalizeChannelKey(source.channelKey) || normalizeChannelKey(notification.threadId) || 'general';
-    const content = typeof message.content === 'string'
+    let content = typeof message.content === 'string'
       ? message.content.trim()
       : typeof notification.content === 'string'
         ? notification.content.trim()
         : '';
+
+    // Resolve file attachment URLs: download and inline text content
+    content = await resolveAttachmentUrls(content);
 
     if (type === 'channel_dispatch') {
       const timingHint = content.includes('TEST_CONTINUITY_DELAY_70')
@@ -465,7 +519,7 @@ class EkybotCompanionRelayProcessor {
       targetChannel,
       isContinuityDelayTest,
     });
-    const prompt = this.buildRelayPrompt(notification);
+    const prompt = await this.buildRelayPrompt(notification);
     const targetModel = typeof target.model === 'string' && target.model.trim() ? target.model.trim() : null;
     const targetProvider = typeof target.provider === 'string' && target.provider.trim() ? target.provider.trim() : null;
     const isClaudeCode = isClaudeCodeProvider(targetProvider);
