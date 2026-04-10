@@ -9,6 +9,7 @@ const {
   resolveRelayTimeout,
   resolveRelayLifecyclePolicy,
 } = require('./relay-continuity');
+const { executeClaudeCode, isClaudeCodeProvider } = require('./claude-code-client');
 
 const SENTINEL_REPLIES = ['NO_REPLY', 'HEARTBEAT_OK', 'ANNOUNCE_SKIP'];
 const DEFAULT_RELAY_ATTEMPTS = 2;
@@ -466,6 +467,8 @@ class EkybotCompanionRelayProcessor {
     });
     const prompt = this.buildRelayPrompt(notification);
     const targetModel = typeof target.model === 'string' && target.model.trim() ? target.model.trim() : null;
+    const targetProvider = typeof target.provider === 'string' && target.provider.trim() ? target.provider.trim() : null;
+    const isClaudeCode = isClaudeCodeProvider(targetProvider);
     const gatewayModel = `openclaw/${targetAgentId}`;
 
     logRelayStep('notification_received', {
@@ -568,7 +571,10 @@ class EkybotCompanionRelayProcessor {
       requestId,
     });
 
-    const sessionBudgetCheck = this.checkSessionBudget(targetAgentId, sessionKey);
+    // Skip budget guard for subscription-based agents (Claude Code/Cowork)
+    const sessionBudgetCheck = isClaudeCode
+      ? { enabled: false, allowed: true, exceeded: false }
+      : this.checkSessionBudget(targetAgentId, sessionKey);
     logRelayStep('session_budget_checked', {
       machineId,
       notificationId: notification.id,
@@ -656,20 +662,40 @@ class EkybotCompanionRelayProcessor {
       targetAgentId,
       sessionKey,
       gatewayModel,
+      isClaudeCode,
+      targetProvider,
     });
-    const gatewayResult = await this.sendRelayPromptWithRetry({
-      notificationId: notification.id,
-      agentId: targetAgentId,
-      sessionKey,
-      prompt,
-      model: gatewayModel,
-    });
+
+    let gatewayResult;
+
+    if (isClaudeCode) {
+      // Route to Claude Code CLI instead of OpenClaw gateway
+      console.log(
+        chalk.cyan(
+          `[relay] ${notification.id} routing to Claude Code CLI (provider=${targetProvider})`
+        )
+      );
+      gatewayResult = await executeClaudeCode(prompt, {
+        agentType: targetProvider,
+      });
+    } else {
+      // Default: OpenClaw gateway
+      gatewayResult = await this.sendRelayPromptWithRetry({
+        notificationId: notification.id,
+        agentId: targetAgentId,
+        sessionKey,
+        prompt,
+        model: gatewayModel,
+      });
+    }
+
     logRelayStep('dispatch_attempt_done', {
       machineId,
       notificationId: notification.id,
       requestId,
       targetAgentId,
       sessionKey,
+      isClaudeCode,
       replyChars: String(gatewayResult?.content || '').length,
     });
 

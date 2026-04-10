@@ -8,6 +8,7 @@ const EkybotCompanionStateStore = require('./companion-state-store');
 const OpenClawInventoryCollector = require('./companion-inventory');
 const OpenClawConfigManager = require('./config-manager');
 const OpenClawGatewayClient = require('./openclaw-gateway-client');
+const ClaudeCodeClient = require('./claude-code-client');
 const EkybotCompanionRelayProcessor = require('./companion-relay-processor');
 const EkybotCompanionRelaySocket = require('./companion-relay-socket');
 const OpenClawMemoryRuntime = require('./memory-runtime');
@@ -21,6 +22,7 @@ module.exports = {
   OpenClawInventoryCollector,
   OpenClawConfigManager,
   OpenClawGatewayClient,
+  ClaudeCodeClient,
   EkybotCompanionRelayProcessor,
   EkybotCompanionRelaySocket,
   OpenClawMemoryRuntime,
