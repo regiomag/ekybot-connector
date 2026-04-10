@@ -13,23 +13,24 @@
 
 const { spawn } = require('child_process');
 const chalk = require('chalk');
+const os = require('os');
+const path = require('path');
+const fs = require('fs');
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_OUTPUT_LENGTH = 50_000; // ~50KB max response
 
+/** Expand ~ to home directory (spawn/fs don't do shell expansion) */
+function expandTilde(dir) {
+  if (!dir) return dir;
+  return dir.startsWith('~') ? path.join(os.homedir(), dir.slice(1)) : dir;
+}
+
 function resolveWorkingDir(agentType) {
-  if (agentType === 'claude-cowork') {
-    return (
-      process.env.EKYBOT_CLAUDE_COWORK_WORKING_DIR ||
-      process.env.HOME ||
-      '/tmp'
-    );
-  }
-  return (
-    process.env.EKYBOT_CLAUDE_CODE_WORKING_DIR ||
-    process.env.HOME ||
-    '/tmp'
-  );
+  const raw = agentType === 'claude-cowork'
+    ? (process.env.EKYBOT_CLAUDE_COWORK_WORKING_DIR || process.env.HOME || '/tmp')
+    : (process.env.EKYBOT_CLAUDE_CODE_WORKING_DIR || process.env.HOME || '/tmp');
+  return expandTilde(raw);
 }
 
 function resolveTimeoutMs() {
@@ -76,9 +77,13 @@ async function executeClaudeCode(message, options = {}) {
     throw new Error(`${agentType} is disabled via environment config`);
   }
 
+  // Resolve ~ and ensure directory exists
+  const resolvedDir = expandTilde(workingDir);
+  fs.mkdirSync(resolvedDir, { recursive: true });
+
   console.log(
     chalk.cyan(
-      `[claude-code] executing prompt in ${workingDir} (timeout=${Math.round(timeoutMs / 1000)}s, type=${agentType})`
+      `[claude-code] executing prompt in ${resolvedDir} (timeout=${Math.round(timeoutMs / 1000)}s, type=${agentType})`
     )
   );
 
@@ -96,7 +101,7 @@ async function executeClaudeCode(message, options = {}) {
     enrichedEnv.PATH = [...extraPaths, ...currentPath.split(':')].filter(Boolean).join(':');
 
     const proc = spawn('claude', args, {
-      cwd: workingDir,
+      cwd: resolvedDir,
       env: enrichedEnv,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -172,11 +177,13 @@ async function executeClaudeCode(message, options = {}) {
     proc.on('error', (err) => {
       settle(() => {
         if (err.code === 'ENOENT') {
-          reject(
-            new Error(
-              'Claude CLI not found. Install: npm install -g @anthropic-ai/claude-code'
-            )
-          );
+          // Differentiate: cwd missing vs binary missing
+          const cwdExists = fs.existsSync(resolvedDir);
+          if (!cwdExists) {
+            reject(new Error(`Working directory does not exist: ${resolvedDir}`));
+          } else {
+            reject(new Error('Claude CLI not found. Install: npm install -g @anthropic-ai/claude-code'));
+          }
         } else {
           reject(err);
         }
