@@ -10,6 +10,7 @@ const {
   resolveRelayLifecyclePolicy,
 } = require('./relay-continuity');
 const { executeClaudeCode, isClaudeCodeProvider } = require('./claude-code-client');
+const { executeCodex, isCodexProvider } = require('./codex-client');
 
 const SENTINEL_REPLIES = ['NO_REPLY', 'HEARTBEAT_OK', 'ANNOUNCE_SKIP'];
 const DEFAULT_RELAY_ATTEMPTS = 2;
@@ -523,6 +524,7 @@ class EkybotCompanionRelayProcessor {
     const targetModel = typeof target.model === 'string' && target.model.trim() ? target.model.trim() : null;
     const targetProvider = typeof target.provider === 'string' && target.provider.trim() ? target.provider.trim() : null;
     const isClaudeCode = isClaudeCodeProvider(targetProvider);
+    const isCodex = isCodexProvider(targetProvider);
     const gatewayModel = `openclaw/${targetAgentId}`;
 
     logRelayStep('notification_received', {
@@ -625,8 +627,8 @@ class EkybotCompanionRelayProcessor {
       requestId,
     });
 
-    // Skip budget guard for subscription-based agents (Claude Code/Cowork)
-    const sessionBudgetCheck = isClaudeCode
+    // Skip OpenClaw budget guard for local CLI agents (Claude Code/Cowork/Codex)
+    const sessionBudgetCheck = (isClaudeCode || isCodex)
       ? { enabled: false, allowed: true, exceeded: false }
       : this.checkSessionBudget(targetAgentId, sessionKey);
     logRelayStep('session_budget_checked', {
@@ -717,6 +719,7 @@ class EkybotCompanionRelayProcessor {
       sessionKey,
       gatewayModel,
       isClaudeCode,
+      isCodex,
       targetProvider,
     });
 
@@ -736,6 +739,19 @@ class EkybotCompanionRelayProcessor {
         agentType: targetProvider,
         workingDir: relayWorkingDir || undefined,
         sessionId: sessionKey,
+      });
+    } else if (isCodex) {
+      // Route to Codex CLI
+      const relayWorkingDir = typeof target.workingDir === 'string' && target.workingDir.trim()
+        ? target.workingDir.trim()
+        : null;
+      console.log(
+        chalk.magenta(
+          `[relay] ${notification.id} routing to Codex CLI (provider=${targetProvider} workingDir=${relayWorkingDir || 'env-default'})`
+        )
+      );
+      gatewayResult = await executeCodex(prompt, {
+        workingDir: relayWorkingDir || undefined,
       });
     } else {
       // Default: OpenClaw gateway
