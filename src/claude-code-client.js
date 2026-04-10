@@ -89,9 +89,15 @@ async function executeClaudeCode(message, options = {}) {
       args.push('--session-id', sessionId);
     }
 
+    // Enrich PATH for macOS LaunchAgent (which has minimal PATH: /usr/bin:/bin:/usr/sbin:/sbin)
+    const enrichedEnv = { ...process.env };
+    const extraPaths = ['/opt/homebrew/bin', '/usr/local/bin', `${process.env.HOME}/.nvm/versions/node/current/bin`];
+    const currentPath = enrichedEnv.PATH || '/usr/bin:/bin';
+    enrichedEnv.PATH = [...extraPaths, ...currentPath.split(':')].filter(Boolean).join(':');
+
     const proc = spawn('claude', args, {
       cwd: workingDir,
-      env: { ...process.env },
+      env: enrichedEnv,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
@@ -212,8 +218,14 @@ async function executeClaudeCode(message, options = {}) {
  */
 async function healthCheck() {
   return new Promise((resolve) => {
+    const enrichedEnv = { ...process.env };
+    const extraPaths = ['/opt/homebrew/bin', '/usr/local/bin', `${process.env.HOME}/.nvm/versions/node/current/bin`];
+    const currentPath = enrichedEnv.PATH || '/usr/bin:/bin';
+    enrichedEnv.PATH = [...extraPaths, ...currentPath.split(':')].filter(Boolean).join(':');
+
     const proc = spawn('claude', ['--version'], {
       timeout: 10_000,
+      env: enrichedEnv,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';
