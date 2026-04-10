@@ -681,6 +681,7 @@ class EkybotCompanionRelayProcessor {
       gatewayResult = await executeClaudeCode(prompt, {
         agentType: targetProvider,
         workingDir: relayWorkingDir || undefined,
+        sessionId: sessionKey,
       });
     } else {
       // Default: OpenClaw gateway
