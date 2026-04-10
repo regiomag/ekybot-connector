@@ -102,7 +102,7 @@ async function executeClaudeCode(message, options = {}) {
   );
 
   return new Promise((resolve, reject) => {
-    const args = ['-p', message, '--output-format', 'text'];
+    const args = ['-p', message, '--output-format', 'text', '--permission-mode', 'acceptEdits'];
 
     // Use --continue to resume the last conversation in this working directory.
     // This avoids session lock conflicts that occur with --session-id when
