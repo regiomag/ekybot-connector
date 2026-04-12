@@ -101,15 +101,43 @@ async function executeClaudeCode(message, options = {}) {
     )
   );
 
+  // Retry wrapper for session lock conflicts
+  const MAX_SESSION_RETRIES = 3;
+  const SESSION_RETRY_DELAY_MS = 5000;
+
+  for (let attempt = 1; attempt <= MAX_SESSION_RETRIES; attempt++) {
+    try {
+      const result = await _executeClaudeCodeOnce(message, {
+        resolvedDir, timeoutMs, sessionId, agentType, maxOutput,
+      });
+      return result;
+    } catch (err) {
+      const isSessionLock = err.message && (
+        err.message.includes('session') && err.message.includes('in use') ||
+        err.message.includes('session') && err.message.includes('lock') ||
+        err.message.includes('already in use')
+      );
+      if (isSessionLock && attempt < MAX_SESSION_RETRIES) {
+        console.log(chalk.yellow(`[claude-code] Session locked, retry ${attempt}/${MAX_SESSION_RETRIES} in ${SESSION_RETRY_DELAY_MS / 1000}s...`));
+        await new Promise((r) => setTimeout(r, SESSION_RETRY_DELAY_MS));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
+function _executeClaudeCodeOnce(message, { resolvedDir, timeoutMs, sessionId, agentType, maxOutput }) {
   return new Promise((resolve, reject) => {
     const args = ['-p', message, '--output-format', 'text', '--permission-mode', 'bypassPermissions'];
 
-    // Use --continue to resume the last conversation in this working directory.
-    // This avoids session lock conflicts that occur with --session-id when
-    // multiple messages arrive before the previous one finishes.
+    // Use --session-id for per-channel session isolation.
+    // Each channel gets its own conversation history even in the same workingDir.
+    // --continue would share sessions across channels in the same directory.
     if (sessionId) {
-      args.push('--continue');
-      console.log(chalk.gray(`[claude-code] using --continue for session continuity (key=${sessionId})`));
+      const sessionUUID = toUUID(sessionId);
+      args.push('--session-id', sessionUUID);
+      console.log(chalk.gray(`[claude-code] using --session-id ${sessionUUID} (key=${sessionId})`));
     }
 
     // Enrich PATH for macOS LaunchAgent (which has minimal PATH: /usr/bin:/bin:/usr/sbin:/sbin)
