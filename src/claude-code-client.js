@@ -75,6 +75,7 @@ function isEnabled(agentType) {
  * @param {number} options.timeoutMs - Timeout in milliseconds
  * @param {string} options.sessionId - Optional session ID for continuity (Level 2)
  * @param {string} options.agentType - 'claude-code' or 'claude-cowork'
+ * @param {string} options.systemPrompt - Optional system prompt to append (agent personality/role)
  * @returns {Promise<{content: string, model: string, billingType: string, exitCode: number}>}
  */
 async function executeClaudeCode(message, options = {}) {
@@ -83,6 +84,7 @@ async function executeClaudeCode(message, options = {}) {
     timeoutMs = resolveTimeoutMs(),
     sessionId = null,
     agentType = 'claude-code',
+    systemPrompt = null,
   } = options;
 
   const maxOutput = resolveMaxOutput();
@@ -101,43 +103,70 @@ async function executeClaudeCode(message, options = {}) {
     )
   );
 
-  // Retry wrapper for session lock conflicts
-  const MAX_SESSION_RETRIES = 3;
-  const SESSION_RETRY_DELAY_MS = 5000;
-
-  for (let attempt = 1; attempt <= MAX_SESSION_RETRIES; attempt++) {
+  // Session strategy: --resume <uuid> to continue a per-channel session.
+  // If session doesn't exist yet, fallback to --session-id <uuid> to create it.
+  // --continue is avoided because it resumes the most recent session in the cwd
+  // which may belong to a different agent/channel.
+  if (sessionId) {
+    const sessionUUID = toUUID(sessionId);
     try {
       const result = await _executeClaudeCodeOnce(message, {
-        resolvedDir, timeoutMs, sessionId, agentType, maxOutput,
+        resolvedDir, timeoutMs, sessionUUID, sessionMode: 'resume', agentType, maxOutput, systemPrompt,
       });
       return result;
     } catch (err) {
-      const isSessionLock = err.message && (
-        err.message.includes('session') && err.message.includes('in use') ||
-        err.message.includes('session') && err.message.includes('lock') ||
-        err.message.includes('already in use')
+      const isNoSession = err.message && (
+        err.message.includes('No conversation found') ||
+        err.message.includes('not found')
       );
-      if (isSessionLock && attempt < MAX_SESSION_RETRIES) {
-        console.log(chalk.yellow(`[claude-code] Session locked, retry ${attempt}/${MAX_SESSION_RETRIES} in ${SESSION_RETRY_DELAY_MS / 1000}s...`));
-        await new Promise((r) => setTimeout(r, SESSION_RETRY_DELAY_MS));
-        continue;
+      const isSessionLock = err.message && (
+        err.message.includes('already in use') ||
+        err.message.includes('session') && err.message.includes('lock')
+      );
+      if (isNoSession) {
+        console.log(chalk.yellow(`[claude-code] Session ${sessionUUID} not found, creating with --session-id`));
+        const result = await _executeClaudeCodeOnce(message, {
+          resolvedDir, timeoutMs, sessionUUID, sessionMode: 'create', agentType, maxOutput, systemPrompt,
+        });
+        return result;
+      }
+      if (isSessionLock) {
+        console.log(chalk.yellow(`[claude-code] Session locked, running without session continuity`));
+        const result = await _executeClaudeCodeOnce(message, {
+          resolvedDir, timeoutMs, sessionUUID: null, sessionMode: null, agentType, maxOutput, systemPrompt,
+        });
+        return result;
       }
       throw err;
     }
   }
+
+  // No session requested — one-shot execution
+  return _executeClaudeCodeOnce(message, {
+    resolvedDir, timeoutMs, sessionUUID: null, sessionMode: null, agentType, maxOutput, systemPrompt,
+  });
 }
 
-function _executeClaudeCodeOnce(message, { resolvedDir, timeoutMs, sessionId, agentType, maxOutput }) {
+function _executeClaudeCodeOnce(message, { resolvedDir, timeoutMs, sessionUUID, sessionMode, agentType, maxOutput, systemPrompt }) {
   return new Promise((resolve, reject) => {
     const args = ['-p', message, '--output-format', 'text', '--permission-mode', 'bypassPermissions'];
 
-    // Use --session-id for per-channel session isolation.
-    // Each channel gets its own conversation history even in the same workingDir.
-    // --continue would share sessions across channels in the same directory.
-    if (sessionId) {
-      const sessionUUID = toUUID(sessionId);
+    // Inject agent personality/role as appended system prompt
+    if (systemPrompt && typeof systemPrompt === 'string' && systemPrompt.trim()) {
+      args.push('--append-system-prompt', systemPrompt.trim());
+      console.log(chalk.gray(`[claude-code] appending system prompt (${systemPrompt.trim().length} chars)`));
+    }
+
+    // Session modes:
+    // - 'resume': --resume <uuid> (continue existing per-channel session)
+    // - 'create': --session-id <uuid> (create new per-channel session)
+    // - null: no session flags (one-shot)
+    if (sessionUUID && sessionMode === 'resume') {
+      args.push('--resume', sessionUUID);
+      console.log(chalk.gray(`[claude-code] resuming session ${sessionUUID}`));
+    } else if (sessionUUID && sessionMode === 'create') {
       args.push('--session-id', sessionUUID);
-      console.log(chalk.gray(`[claude-code] using --session-id ${sessionUUID} (key=${sessionId})`));
+      console.log(chalk.gray(`[claude-code] creating session ${sessionUUID}`));
     }
 
     // Enrich PATH for macOS LaunchAgent (which has minimal PATH: /usr/bin:/bin:/usr/sbin:/sbin)

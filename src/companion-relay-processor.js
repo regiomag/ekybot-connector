@@ -730,15 +730,19 @@ class EkybotCompanionRelayProcessor {
       const relayWorkingDir = typeof target.workingDir === 'string' && target.workingDir.trim()
         ? target.workingDir.trim()
         : null;
+      const relaySystemPrompt = typeof target.systemPrompt === 'string' && target.systemPrompt.trim()
+        ? target.systemPrompt.trim()
+        : null;
       console.log(
         chalk.cyan(
-          `[relay] ${notification.id} routing to Claude Code CLI (provider=${targetProvider} workingDir=${relayWorkingDir || 'env-default'})`
+          `[relay] ${notification.id} routing to Claude Code CLI (provider=${targetProvider} workingDir=${relayWorkingDir || 'env-default'} systemPrompt=${relaySystemPrompt ? relaySystemPrompt.length + 'chars' : 'none'})`
         )
       );
       gatewayResult = await executeClaudeCode(prompt, {
         agentType: targetProvider,
         workingDir: relayWorkingDir || undefined,
         sessionId: sessionKey,
+        systemPrompt: relaySystemPrompt || undefined,
       });
     } else if (isCodex) {
       // Route to Codex CLI
