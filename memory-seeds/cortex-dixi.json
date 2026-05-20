@@ -1,0 +1,74 @@
+{
+  "project": {
+    "name": "Projet Cortex / DIXI Polytool",
+    "summary": "Cortex centralise et structure la connaissance métier de DIXI Polytool (Le Locle, Suisse) : chats clients, produits, support technique, documentation et savoir expert.",
+    "phase": "Phase 0 terminée, Phase 1 en préparation",
+    "orchestration": "Hermes=orchestrateur métier, Ekybot=companion/relais, Claude Code=exécution dev, LangChain=pipelines production (prévu)",
+    "pilot": "Michael Dusong / Ekylibr — seul intervenant phase 0",
+    "dixi_contacts": "Gaëtan=DSI/opérationnel, Benjamin=Head IT/infra, Cédric=consultant/stratégie, Thibaut Castella=DG/sponsor"
+  },
+  "decisions": [
+    {"status": "confirmed", "decision": "PoC pragmatique avant architecture complète"},
+    {"status": "confirmed", "decision": "Agent outillé avec evidence, pas de RAG générique brut"},
+    {"status": "confirmed", "decision": "Données structurées pour le lookup produit (CSV/DB)"},
+    {"status": "confirmed", "decision": "Séparer pain_score et automation_opportunity_score"},
+    {"status": "confirmed", "decision": "Anonymisation Presidio/spaCy avant traitement LLM externe"},
+    {"status": "confirmed", "decision": "LangChain + LangServe pour les pipelines production"},
+    {"status": "confirmed", "decision": "Hermes reste orchestrateur métier et explorateur"}
+  ],
+  "technical": {
+    "text_com": {
+      "status": "connecté et fonctionnel",
+      "endpoint": "https://api.livechatinc.com/v3.6/agent/action/list_archives",
+      "auth": "Basic Auth base64(account_id:PAT)",
+      "extracted": "7157 chats importés en base (mai 2021 → mai 2026, 106k messages, 921h de conversations)"
+    },
+    "product_lookup": {
+      "goal": "SKU/référence → attributs produit en <2s (test Cédric)",
+      "source": "PostgreSQL (table products)",
+      "status": "opérationnel"
+    },
+    "stack": "Python 3.11, PostgreSQL 16+pgvector, FastAPI, LangChain (prévu), Docker"
+  },
+  "safety": {
+    "classification": "PUBLIC, INTERNAL, CONFIDENTIAL, RESTRICTED",
+    "rules": [
+      "Anonymiser les PII avant traitement LLM externe",
+      "Ne jamais envoyer de données CONFIDENTIAL/RESTRICTED vers API externe",
+      "Citer les sources dans chaque réponse métier",
+      "Escalader à Michael en cas de doute sécurité",
+      "Entrées LLM dans la DB ne doivent jamais être écrasées sans --reset-knowledge"
+    ]
+  },
+  "glossary": {
+    "SKU": "Identifiant produit DIXI (ex: DH401040)",
+    "carbure": "Carbure de tungstène, matériau principal des outils DIXI",
+    "PCD": "Diamant polycristallin, pour outils haute performance",
+    "conditions_de_coupe": "Paramètres Vc/fz/ap pour un couple outil-matière",
+    "Proconcept": "ERP utilisé chez DIXI (~47000 tables)",
+    "text.com": "Plateforme LiveChat pour le support client DIXI"
+  },
+  "progress": {
+    "done": [
+      "Extraction API text.com (7157 chats)",
+      "Import en base PostgreSQL",
+      "Catégorisation des chats",
+      "Extraction de connaissances (1705 recos, 506 FAQ, 241 conditions de coupe)",
+      "Pain points analysis (12 catégories, 22% chats abandonnés identifié)",
+      "API REST FastAPI opérationnelle (suggest, search, products)",
+      "LLM branché (Claude Sonnet via OpenRouter) pour suggestions en langage naturel",
+      "Frontend React dark mode opérationnel (3 colonnes: inbox, chat, suggestion)",
+      "Protection LLM data implémentée (extract_knowledge.py préserve les entrées LLM)",
+      "4 rapports Phase 0 livrés (stats, analyse, architecture, roadmap)",
+      "Démo faite avec Benjamin le 13 mai — 2j validés, Phase 1 en attente Thibo"
+    ],
+    "next": [
+      "Réunion mardi 20 mai 11h avec Thibo + Gaëtan pour valider Phase 1",
+      "Vidéo démo du prototype à fournir",
+      "Connecter les vrais chats LiveChat en live (polling API)",
+      "Importer le catalogue produits CSV (table products = 0 lignes)",
+      "Intégration LangChain/LangGraph pour RAG + routing par intention",
+      "Learning from edits (Gaëtan modifie → Cortex apprend)"
+    ]
+  }
+}

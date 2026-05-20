@@ -1,0 +1,42 @@
+{
+  "project": {
+    "name": "Ekybot",
+    "summary": "Plateforme d'orchestration multi-agents IA. Dashboard cloud (Next.js/Vercel) + Companion daemon local + runtimes multiples (OpenClaw, Claude Code, Hermes, Codex).",
+    "repo_prod": "regiomag/ekybot",
+    "repo_oss": "regiomag/ekybot-openclaw",
+    "stack": "Next.js 14, React 18, Prisma, Supabase PostgreSQL, Capacitor (mobile), Tailwind+shadcn"
+  },
+  "decisions": [
+    {"status": "confirmed", "decision": "Deploy via repo ekybot (pas ekybot-openclaw) — Vercel lié à regiomag/ekybot"},
+    {"status": "confirmed", "decision": "Git identity regiomag (michael@13arty.com) pour les commits deployés"},
+    {"status": "confirmed", "decision": "Companion-dispatched providers (claude-code, hermes, codex) bypass le gateway OpenClaw"},
+    {"status": "confirmed", "decision": "Channels séparés par projet (claude-code vs claude-code-dixi)"},
+    {"status": "confirmed", "decision": "Middleware Clerk requis pour auth server-side dans les API routes"}
+  ],
+  "technical": {
+    "companion": {
+      "location": "/Users/ekytec/.openclaw/workspace-main/ekybot-connector",
+      "daemon": "launchd com.ekybot.companion",
+      "machine_id": "cmmp6r30y005fdb3ad5c6jt0f",
+      "machine_name": "Mac-mini-de-Ekytec.local"
+    },
+    "providers": {
+      "claude-code": "CLI claude, spawn process, session persistence via --resume",
+      "hermes": "CLI hermes chat -q, venv ~/.openclaw/hermes-agent/venv, config ~/.hermes/",
+      "codex": "CLI codex, spawn process",
+      "openclaw": "HTTP proxy vers gateway local port 18789"
+    },
+    "database": {
+      "host": "Supabase (jvqwmqlpozqoscmcigqn)",
+      "orm": "Prisma 5.x"
+    }
+  },
+  "safety": {
+    "rules": [
+      "API keys jamais en clair dans le code, toujours .env",
+      "Git identity regiomag pour deploys Vercel (sinon deploy blocked)",
+      "Pas de force push sur main sans confirmation utilisateur",
+      "Tester le scroll behavior après chaque modification du chat UI"
+    ]
+  }
+}

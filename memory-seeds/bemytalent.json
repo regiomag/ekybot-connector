@@ -1,0 +1,33 @@
+{
+  "project": {
+    "name": "BeMyTalent",
+    "summary": "Cockpit complet de l'entrepreneur suisse : prévisionnel, CRM, ventes, stock, comptabilité, TVA. Intégration agentique via Ekybot comme moteur d'orchestration.",
+    "repo": "regiomag/bemytalent_tools",
+    "stack": "Vite + React 18, Supabase (auth+DB+realtime), shadcn/ui, TanStack Query, react-router-dom",
+    "phase": "MVP Agent Chat Gateway en cours"
+  },
+  "decisions": [
+    {"status": "confirmed", "decision": "BeMyTalent = cockpit métier, Ekybot = moteur agentique — séparation stricte"},
+    {"status": "confirmed", "decision": "Communication par API/webhook uniquement, pas de partage de stack"},
+    {"status": "confirmed", "decision": "V1 = chat agents dans BeMyTalent, pas d'actions métier sensibles"},
+    {"status": "confirmed", "decision": "Pas de MCP en V1, pas d'accès direct DB par les agents"},
+    {"status": "confirmed", "decision": "Human-in-the-loop obligatoire pour actions sensibles (publier, envoyer, facturer)"},
+    {"status": "confirmed", "decision": "Challenger la spec avant de coder"}
+  ],
+  "technical": {
+    "agent_gateway_mvp": {
+      "tables": "agent_connections, agent_channels, agent_messages, agent_runs, agent_events",
+      "api": "créer/lister channels, poster message, @mentions, recevoir webhook réponse",
+      "webhook_ekybot": "requestId, messageId, channelId, agentId, profile, text, status, metadata",
+      "ui": "page AgentChat avec channels, fil messages, saisie @mention, statut agent"
+    }
+  },
+  "safety": {
+    "rules": [
+      "Les agents ne manipulent pas directement la DB BeMyTalent",
+      "Tout passe par des endpoints métier contrôlés",
+      "Actions sensibles (publier, envoyer, facturer) = validation humaine obligatoire",
+      "Traçabilité complète : chaque événement loggé avec idempotencyKey"
+    ]
+  }
+}
