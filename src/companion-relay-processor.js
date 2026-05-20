@@ -780,6 +780,33 @@ class EkybotCompanionRelayProcessor {
         sessionId: sessionKey,
         systemPrompt: relaySystemPrompt || undefined,
       });
+
+      // Auto-recover from fatal session errors (e.g. image dimension limit)
+      const isFatalSessionError = gatewayResult?.content && (
+        /image.*exceeds.*dimension.*limit/i.test(gatewayResult.content) ||
+        /many-image requests.*2000px/i.test(gatewayResult.content)
+      );
+      if (isFatalSessionError && this.stateStore) {
+        const newGen = this.stateStore.incrementSessionResetGeneration(targetAgentId);
+        console.warn(
+          chalk.yellow(
+            `[relay] Fatal session error detected for ${targetAgentId}. Session generation bumped to ${newGen}. Retrying with fresh session...`
+          )
+        );
+        // Rebuild session key with new generation and retry once
+        const freshSessionKey = buildRelaySessionKey({
+          targetAgentId,
+          targetChannel,
+          isContinuityDelayTest,
+          sessionResetGeneration: newGen,
+        });
+        gatewayResult = await executeClaudeCode(prompt, {
+          agentType: targetProvider,
+          workingDir: relayWorkingDir || undefined,
+          sessionId: freshSessionKey,
+          systemPrompt: relaySystemPrompt || undefined,
+        });
+      }
     } else if (isCodex) {
       // Route to Codex CLI
       let relayWorkingDir = typeof target.workingDir === 'string' && target.workingDir.trim()
