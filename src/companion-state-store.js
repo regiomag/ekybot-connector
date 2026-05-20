@@ -138,6 +138,34 @@ class EkybotCompanionStateStore {
     }));
   }
 
+  /**
+   * Get the session reset generation counter for an agent.
+   * Used to invalidate Claude Code sessions after a reset_session operation.
+   */
+  getSessionResetGeneration(agentId) {
+    const current = this.load() || {};
+    const resets = current.sessionResetGenerations || {};
+    return resets[agentId] || 0;
+  }
+
+  /**
+   * Increment the session reset generation for an agent.
+   * This forces the relay processor to create a new session on next dispatch.
+   */
+  incrementSessionResetGeneration(agentId) {
+    this.merge((current) => {
+      const resets = current.sessionResetGenerations || {};
+      const next = (resets[agentId] || 0) + 1;
+      return {
+        sessionResetGenerations: {
+          ...resets,
+          [agentId]: next,
+        },
+      };
+    });
+    return this.getSessionResetGeneration(agentId);
+  }
+
   clear() {
     if (fs.existsSync(this.filePath)) {
       fs.unlinkSync(this.filePath);

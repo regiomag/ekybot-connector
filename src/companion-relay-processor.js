@@ -11,6 +11,9 @@ const {
 } = require('./relay-continuity');
 const { executeClaudeCode, isClaudeCodeProvider } = require('./claude-code-client');
 const { executeCodex, isCodexProvider } = require('./codex-client');
+const { executeHermes, isHermesProvider } = require('./hermes-client');
+const { enrichPromptWithMemory } = require('./memory/injector');
+const { processFileAttachments } = require('./file-uploader');
 
 const SENTINEL_REPLIES = ['NO_REPLY', 'HEARTBEAT_OK', 'ANNOUNCE_SKIP'];
 const DEFAULT_RELAY_ATTEMPTS = 2;
@@ -97,8 +100,9 @@ function logRelayStep(event, payload) {
   console.log(`[relay][step] ${event} ${JSON.stringify(payload)}`);
 }
 
-function buildRelaySessionKey({ targetAgentId, targetChannel, isContinuityDelayTest }) {
-  const base = `agent:${targetAgentId}:${OPENCLAW_RELAY_SESSION_NAMESPACE}:${targetChannel}`;
+function buildRelaySessionKey({ targetAgentId, targetChannel, isContinuityDelayTest, sessionResetGeneration }) {
+  const gen = sessionResetGeneration > 0 ? `:gen${sessionResetGeneration}` : '';
+  const base = `agent:${targetAgentId}:${OPENCLAW_RELAY_SESSION_NAMESPACE}:${targetChannel}${gen}`;
   return isContinuityDelayTest ? `${base}:continuity-test` : base;
 }
 
@@ -134,6 +138,24 @@ class EkybotCompanionRelayProcessor {
     this.inventoryCollector = options.inventoryCollector || null;
     this.machineId = options.machineId || null;
     this.configManager = options.configManager || new OpenClawConfigManager();
+  }
+
+  /**
+   * Resolve workspace path for an agent from the managed agents inventory.
+   * Falls back to null if not found.
+   */
+  async resolveWorkspacePath(targetAgentId) {
+    if (!this.machineId || !this.apiClient) return null;
+    try {
+      const desiredState = await this.apiClient.getDesiredState(this.machineId);
+      const agents = desiredState?.agents || [];
+      const match = agents.find(a =>
+        a.openclawAgentId === targetAgentId || a.channelKey === targetAgentId
+      );
+      return match?.workspacePath || null;
+    } catch {
+      return null;
+    }
   }
 
   currentHeartbeatTimestamp() {
@@ -515,16 +537,26 @@ class EkybotCompanionRelayProcessor {
           ? normalizedTargetChannel
           : sourceChannel || targetAgentId || 'general';
     const isContinuityDelayTest = hasContinuityDelayTestMarker(notification);
+    const sessionResetGeneration = this.stateStore?.getSessionResetGeneration?.(targetAgentId) || 0;
     const sessionKey = buildRelaySessionKey({
       targetAgentId,
       targetChannel,
       isContinuityDelayTest,
+      sessionResetGeneration,
     });
-    const prompt = await this.buildRelayPrompt(notification);
+    const rawPrompt = await this.buildRelayPrompt(notification);
+    // Inject relevant project memory into the prompt (max ~1500 tokens)
+    let prompt = enrichPromptWithMemory(rawPrompt, {
+      channelKey: sourceChannel,
+      targetAgentId,
+    });
+    // Inject file attachment instruction for all agents
+    prompt += '\n\n[EKYBOT FILE CONVENTION] Pour joindre un fichier à ta réponse, utilise le marqueur [FILE:/chemin/absolu/du/fichier.ext] dans ton texte. Le système uploadera automatiquement le fichier et l\'affichera comme pièce jointe téléchargeable.';
     const targetModel = typeof target.model === 'string' && target.model.trim() ? target.model.trim() : null;
     const targetProvider = typeof target.provider === 'string' && target.provider.trim() ? target.provider.trim() : null;
     const isClaudeCode = isClaudeCodeProvider(targetProvider);
     const isCodex = isCodexProvider(targetProvider);
+    const isHermes = isHermesProvider(targetProvider);
     const gatewayModel = `openclaw/${targetAgentId}`;
 
     logRelayStep('notification_received', {
@@ -727,15 +759,19 @@ class EkybotCompanionRelayProcessor {
 
     if (isClaudeCode) {
       // Route to Claude Code CLI instead of OpenClaw gateway
-      const relayWorkingDir = typeof target.workingDir === 'string' && target.workingDir.trim()
+      let relayWorkingDir = typeof target.workingDir === 'string' && target.workingDir.trim()
         ? target.workingDir.trim()
         : null;
+      // Resolve workspace path from managed agents if not provided in the notification
+      if (!relayWorkingDir) {
+        relayWorkingDir = await this.resolveWorkspacePath(targetAgentId) || null;
+      }
       const relaySystemPrompt = typeof target.systemPrompt === 'string' && target.systemPrompt.trim()
         ? target.systemPrompt.trim()
-        : null;
+        : (channelAgent?.systemPrompt || null);
       console.log(
         chalk.cyan(
-          `[relay] ${notification.id} routing to Claude Code CLI (provider=${targetProvider} workingDir=${relayWorkingDir || 'env-default'} systemPrompt=${relaySystemPrompt ? relaySystemPrompt.length + 'chars' : 'none'})`
+          `[relay] ${notification.id} routing to Claude Code CLI (provider=${targetProvider} agent=${targetAgentId} workingDir=${relayWorkingDir || 'env-default'} systemPrompt=${relaySystemPrompt ? relaySystemPrompt.length + 'chars' : 'none'})`
         )
       );
       gatewayResult = await executeClaudeCode(prompt, {
@@ -746,16 +782,39 @@ class EkybotCompanionRelayProcessor {
       });
     } else if (isCodex) {
       // Route to Codex CLI
-      const relayWorkingDir = typeof target.workingDir === 'string' && target.workingDir.trim()
+      let relayWorkingDir = typeof target.workingDir === 'string' && target.workingDir.trim()
         ? target.workingDir.trim()
         : null;
+      if (!relayWorkingDir) {
+        relayWorkingDir = await this.resolveWorkspacePath(targetAgentId) || null;
+      }
       console.log(
         chalk.magenta(
-          `[relay] ${notification.id} routing to Codex CLI (provider=${targetProvider} workingDir=${relayWorkingDir || 'env-default'})`
+          `[relay] ${notification.id} routing to Codex CLI (provider=${targetProvider} agent=${targetAgentId} workingDir=${relayWorkingDir || 'env-default'})`
         )
       );
       gatewayResult = await executeCodex(prompt, {
         workingDir: relayWorkingDir || undefined,
+      });
+    } else if (isHermes) {
+      // Route to Hermes Agent CLI
+      const relaySystemPrompt = typeof target.systemPrompt === 'string' && target.systemPrompt.trim()
+        ? target.systemPrompt.trim()
+        : null;
+      // Resolve Hermes profile from agent metadata or channel key
+      // Convention: metadata.hermesProfile > channel-based mapping > 'default'
+      const hermesProfile =
+        (target.metadata && typeof target.metadata === 'object' && target.metadata.hermesProfile) ||
+        (sourceChannel.includes('dixi') ? 'cortex-dixi' : null) ||
+        null;
+      console.log(
+        chalk.magenta(
+          `[relay] ${notification.id} routing to Hermes CLI (provider=${targetProvider} profile=${hermesProfile || 'default'})`
+        )
+      );
+      gatewayResult = await executeHermes(prompt, {
+        systemPrompt: relaySystemPrompt || undefined,
+        profile: hermesProfile,
       });
     } else {
       // Default: OpenClaw gateway
@@ -775,10 +834,26 @@ class EkybotCompanionRelayProcessor {
       targetAgentId,
       sessionKey,
       isClaudeCode,
+      isHermes,
       replyChars: String(gatewayResult?.content || '').length,
     });
 
-    const cleanedReply = this.cleanReply(gatewayResult.content);
+    let cleanedReply = this.cleanReply(gatewayResult.content);
+
+    // Process [FILE:/path] markers — upload files and attach to message
+    let attachedFiles = [];
+    const appUrl = process.env.EKYBOT_APP_URL || 'https://www.ekybot.com';
+    try {
+      const fileResult = await processFileAttachments(cleanedReply, appUrl);
+      cleanedReply = fileResult.content;
+      attachedFiles = fileResult.files;
+      if (attachedFiles.length > 0) {
+        console.log(chalk.green(`[relay] ${notification.id} attached ${attachedFiles.length} file(s)`));
+      }
+    } catch (fileErr) {
+      console.warn(chalk.yellow(`[relay] file attachment processing failed: ${fileErr.message}`));
+    }
+
     logRelayStep('reply_cleaned', {
       machineId,
       notificationId: notification.id,
@@ -832,6 +907,7 @@ class EkybotCompanionRelayProcessor {
         openclawAgentId: targetAgentId,
         content: cleanedReply,
         createdAt: new Date().toISOString(),
+        ...(attachedFiles.length > 0 ? { files: attachedFiles } : {}),
       };
 
       logRelayPublish('post_start', {

@@ -1,4 +1,8 @@
 const crypto = require('crypto');
+const { spawn } = require('child_process');
+const path = require('path');
+const os = require('os');
+const fs = require('fs');
 const chalk = require('chalk');
 
 class EkybotCompanionExecutor {
@@ -115,6 +119,158 @@ class EkybotCompanionExecutor {
       'update_workspace_templates',
       'archive_agent',
     ]);
+
+    // Handle Hermes profile creation
+    if (operation.type === 'create_agent' && operation.payload?.action === 'create_hermes_profile') {
+      const profileName = operation.payload.profileName;
+      if (!profileName || typeof profileName !== 'string') {
+        throw new Error('Missing profileName in create_hermes_profile payload');
+      }
+
+      const hermesHome = path.join(os.homedir(), '.hermes', 'profiles', profileName);
+      const alreadyExists = fs.existsSync(hermesHome);
+
+      if (alreadyExists) {
+        this.logger.log(chalk.yellow(`[hermes-profile] Profile "${profileName}" already exists — skipping creation`));
+        await this.apiClient.updateOperation(machineId, operation.id, {
+          status: 'applied',
+          result: { appliedAt: new Date().toISOString(), profileName, alreadyExists: true },
+        });
+        return;
+      }
+
+      // Create profile via hermes CLI
+      const result = await new Promise((resolve, reject) => {
+        const hermesBin = path.join(os.homedir(), '.local', 'bin', 'hermes');
+        const hermesProject = path.join(os.homedir(), '.openclaw', 'hermes-agent');
+        const venvBin = path.join(hermesProject, 'venv', 'bin');
+
+        const env = { ...process.env };
+        env.PATH = [venvBin, path.join(os.homedir(), '.local', 'bin'), '/opt/homebrew/bin', env.PATH].join(':');
+        env.VIRTUAL_ENV = path.join(hermesProject, 'venv');
+
+        const proc = spawn(hermesBin, ['profile', 'create', profileName, '--clone', '--no-alias'], {
+          cwd: hermesProject,
+          env,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          timeout: 30000,
+        });
+
+        let stdout = '';
+        let stderr = '';
+        proc.stdout.on('data', d => { stdout += d.toString(); });
+        proc.stderr.on('data', d => { stderr += d.toString(); });
+        proc.on('close', code => {
+          if (code === 0) {
+            resolve({ stdout: stdout.trim(), stderr: stderr.trim() });
+          } else {
+            reject(new Error(`hermes profile create failed (exit ${code}): ${stderr.trim() || stdout.trim()}`));
+          }
+        });
+        proc.on('error', reject);
+      });
+
+      // Create empty memory seed for this project
+      const seedsDir = path.join(__dirname, '..', 'memory-seeds');
+      const seedPath = path.join(seedsDir, `${profileName}.json`);
+      if (!fs.existsSync(seedPath)) {
+        const seed = {
+          project: {
+            name: operation.payload.channelKey || profileName,
+            summary: `Projet ${profileName} — créé automatiquement via Ekybot.`,
+            phase: 'Initialisation',
+          },
+          decisions: [],
+          safety: {
+            rules: ['Respecter la politique de confidentialité du projet'],
+          },
+        };
+        fs.writeFileSync(seedPath, JSON.stringify(seed, null, 2), 'utf-8');
+        this.logger.log(chalk.green(`[hermes-profile] Created memory seed: ${seedPath}`));
+      }
+
+      await this.apiClient.updateOperation(machineId, operation.id, {
+        status: 'applied',
+        result: {
+          appliedAt: new Date().toISOString(),
+          profileName,
+          profilePath: hermesHome,
+          seedCreated: !fs.existsSync(seedPath),
+          output: result.stdout.substring(0, 500),
+        },
+      });
+
+      this.logger.log(chalk.green(`✓ Hermes profile "${profileName}" created`));
+      return;
+    }
+
+    // Handle Hermes model update
+    if (operation.type === 'update_agent_model' && operation.payload?.action === 'update_hermes_model') {
+      const { profileName: profile, model: newModel } = operation.payload;
+      if (!profile || !newModel) {
+        throw new Error('Missing profileName or model in update_hermes_model payload');
+      }
+
+      const hermesHome = profile === 'default'
+        ? path.join(os.homedir(), '.hermes')
+        : path.join(os.homedir(), '.hermes', 'profiles', profile);
+      const configPath = path.join(hermesHome, 'config.yaml');
+
+      if (!fs.existsSync(configPath)) {
+        throw new Error(`Hermes config not found: ${configPath}`);
+      }
+
+      // Read, update model.default, write back
+      let config = fs.readFileSync(configPath, 'utf-8');
+      const modelMatch = config.match(/^(\s*default:\s*).+$/m);
+      if (modelMatch) {
+        config = config.replace(/^(\s*default:\s*).+$/m, `$1${newModel}`);
+      } else {
+        // No model.default found — prepend it
+        config = `model:\n  default: ${newModel}\n  provider: openrouter\n${config}`;
+      }
+      fs.writeFileSync(configPath, config, 'utf-8');
+
+      await this.apiClient.updateOperation(machineId, operation.id, {
+        status: 'applied',
+        result: {
+          appliedAt: new Date().toISOString(),
+          profileName: profile,
+          newModel,
+          configPath,
+        },
+      });
+
+      this.logger.log(chalk.green(`✓ Hermes profile "${profile}" model updated to ${newModel}`));
+      return;
+    }
+
+    // Handle session reset — invalidate the CLI session for an agent
+    if (operation.type === 'reset_session') {
+      const payload = operation.payload || {};
+      const agentId = payload.openclawAgentId;
+      if (!agentId) {
+        throw new Error('Missing openclawAgentId in reset_session payload');
+      }
+
+      const newGeneration = this.stateStore.incrementSessionResetGeneration(agentId);
+      this.logger.log(
+        chalk.green(
+          `✓ reset_session applied for ${agentId} (generation=${newGeneration}, reason=${payload.reason || 'unknown'})`
+        )
+      );
+
+      await this.apiClient.updateOperation(machineId, operation.id, {
+        status: 'applied',
+        result: {
+          appliedAt: new Date().toISOString(),
+          openclawAgentId: agentId,
+          newSessionGeneration: newGeneration,
+          reason: payload.reason || 'unknown',
+        },
+      });
+      return;
+    }
 
     if (operation.type === 'scan_inventory') {
       await this.apiClient.updateOperation(machineId, operation.id, {
