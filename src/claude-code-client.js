@@ -18,7 +18,7 @@ const os = require('os');
 const path = require('path');
 const fs = require('fs');
 
-const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 const MAX_OUTPUT_LENGTH = 50_000; // ~50KB max response
 
 /** Convert any string to a deterministic UUID (SHA-256 → UUID v4 format) */
@@ -265,27 +265,37 @@ function _executeClaudeCodeOnce(message, { resolvedDir, timeoutMs, sessionUUID, 
       });
     });
 
-    // Hard timeout
+    // Hard timeout — always resolve (never reject) so the caller can
+    // publish an informative message to the user instead of failing silently.
     const timer = setTimeout(() => {
       if (!proc.killed) {
         proc.kill('SIGTERM');
       }
       settle(() => {
-        if (stdout.trim().length > 0) {
+        const partial = stdout.trim();
+        const timeoutSec = Math.round(timeoutMs / 1000);
+        if (partial.length > 0) {
           resolve({
             content:
-              stdout.trim().substring(0, maxOutput) +
-              `\n\n[Timed out after ${Math.round(timeoutMs / 1000)}s]`,
+              partial.substring(0, maxOutput) +
+              `\n\n[Timed out after ${timeoutSec}s — réponse partielle ci-dessus]`,
             model: 'anthropic/claude-code',
             billingType: 'subscription',
             exitCode: -1,
           });
         } else {
-          reject(
-            new Error(
-              `Claude Code timed out after ${Math.round(timeoutMs / 1000)}s`
-            )
-          );
+          // No output at all — the agent was working on a long task.
+          // Resolve with an informative message instead of rejecting,
+          // so BMT/Ekybot receives feedback instead of silence.
+          resolve({
+            content:
+              `⏳ La tâche est en cours mais dépasse le temps imparti (${timeoutSec}s). ` +
+              `L'agent travaillait dessus mais n'a pas pu terminer dans le délai. ` +
+              `Relance la demande ou vérifie l'avancement dans le chat Ekybot.`,
+            model: 'anthropic/claude-code',
+            billingType: 'subscription',
+            exitCode: -1,
+          });
         }
       });
     }, timeoutMs);
