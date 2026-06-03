@@ -1073,57 +1073,96 @@ class EkybotCompanionRelayProcessor {
     const notifications = Array.isArray(payload?.notifications) ? payload.notifications : [];
     result.fetched = notifications.length;
 
-    for (const notification of notifications) {
-      try {
-        const delivery = await this.processNotification(machineId, notification);
-        result.delivered += 1;
-        if (delivery.hasReply) {
-          result.replied += 1;
-        }
-        console.log(
-          chalk.green(
-            `✓ relay delivered ${delivery.targetAgentId} → #${delivery.sourceChannel}${delivery.hasReply ? ' (reply published)' : ''}`
-          )
-        );
-      } catch (error) {
-        result.failed += 1;
-        const message = error instanceof Error ? error.message : String(error);
-        const relay = notification?.relay || {};
-        const sourceChannel = normalizeChannelKey(relay?.source?.channelKey) || normalizeChannelKey(notification?.threadId) || 'general';
-        const targetAgentId = relay?.target?.agentId || notification?.toAgentId || 'unknown';
-        const normalizedTargetChannel = normalizeChannelKey(relay?.target?.channelKey);
-        const targetChannel = normalizedTargetChannel && normalizedTargetChannel !== 'general'
-          ? normalizedTargetChannel
-          : sourceChannel || targetAgentId || 'general';
-        console.warn(
-          chalk.yellow(
-            `! relay failed ${notification?.id || 'unknown'} ${(relay?.type || 'agent_notification')} source=#${sourceChannel} targetAgent=${targetAgentId} targetChannel=#${targetChannel}: ${message}`
-          )
-        );
-        try {
-          const ackAttempts = await this.updateRelayNotificationsWithRetry(machineId, {
-            notificationIds: [notification.id],
-            status: 'failed',
-            error: message,
-          }, {
-            notificationId: notification.id,
-            logLabel: 'ack_failed',
-          });
-          logRelayPublish('ack_failed_ok', {
-            machineId,
-            notificationId: notification.id,
-            requestId: resolveRelayRequestId(notification),
-            targetAgentId,
-            channelKey: sourceChannel,
-            attempts: ackAttempts,
-          });
-        } catch (ackError) {
-          const ackMessage = ackError instanceof Error ? ackError.message : String(ackError);
-          console.warn(chalk.yellow(`! relay failure ack failed ${notification?.id || 'unknown'}: ${ackMessage}`));
-        }
+    if (notifications.length === 0) {
+      return result;
+    }
 
-        this.stateStore?.clearActiveRequest(resolveRelayRequestId(notification));
-        await this.sendRuntimeHeartbeat();
+    // Group notifications by target agent so each agent processes in parallel,
+    // while notifications for the SAME agent are still sequential (to preserve
+    // conversation order within a session).
+    const byAgent = new Map();
+    for (const notification of notifications) {
+      const agentId = notification?.relay?.target?.agentId || notification?.toAgentId || 'unknown';
+      if (!byAgent.has(agentId)) {
+        byAgent.set(agentId, []);
+      }
+      byAgent.get(agentId).push(notification);
+    }
+
+    console.log(
+      chalk.gray(
+        `[relay] Processing ${notifications.length} notification(s) across ${byAgent.size} agent(s) in parallel`
+      )
+    );
+
+    // Process each agent's queue concurrently
+    const agentPromises = [...byAgent.entries()].map(async ([agentId, agentNotifications]) => {
+      const agentResult = { delivered: 0, failed: 0, replied: 0 };
+
+      // Sequential within each agent to preserve conversation order
+      for (const notification of agentNotifications) {
+        try {
+          const delivery = await this.processNotification(machineId, notification);
+          agentResult.delivered += 1;
+          if (delivery.hasReply) {
+            agentResult.replied += 1;
+          }
+          console.log(
+            chalk.green(
+              `✓ relay delivered ${delivery.targetAgentId} → #${delivery.sourceChannel}${delivery.hasReply ? ' (reply published)' : ''}`
+            )
+          );
+        } catch (error) {
+          agentResult.failed += 1;
+          const message = error instanceof Error ? error.message : String(error);
+          const relay = notification?.relay || {};
+          const sourceChannel = normalizeChannelKey(relay?.source?.channelKey) || normalizeChannelKey(notification?.threadId) || 'general';
+          const targetAgentId = relay?.target?.agentId || notification?.toAgentId || 'unknown';
+          const normalizedTargetChannel = normalizeChannelKey(relay?.target?.channelKey);
+          const targetChannel = normalizedTargetChannel && normalizedTargetChannel !== 'general'
+            ? normalizedTargetChannel
+            : sourceChannel || targetAgentId || 'general';
+          console.warn(
+            chalk.yellow(
+              `! relay failed ${notification?.id || 'unknown'} ${(relay?.type || 'agent_notification')} source=#${sourceChannel} targetAgent=${targetAgentId} targetChannel=#${targetChannel}: ${message}`
+            )
+          );
+          try {
+            const ackAttempts = await this.updateRelayNotificationsWithRetry(machineId, {
+              notificationIds: [notification.id],
+              status: 'failed',
+              error: message,
+            }, {
+              notificationId: notification.id,
+              logLabel: 'ack_failed',
+            });
+            logRelayPublish('ack_failed_ok', {
+              machineId,
+              notificationId: notification.id,
+              requestId: resolveRelayRequestId(notification),
+              targetAgentId,
+              channelKey: sourceChannel,
+              attempts: ackAttempts,
+            });
+          } catch (ackError) {
+            const ackMessage = ackError instanceof Error ? ackError.message : String(ackError);
+            console.warn(chalk.yellow(`! relay failure ack failed ${notification?.id || 'unknown'}: ${ackMessage}`));
+          }
+
+          this.stateStore?.clearActiveRequest(resolveRelayRequestId(notification));
+          await this.sendRuntimeHeartbeat();
+        }
+      }
+
+      return agentResult;
+    });
+
+    const agentResults = await Promise.allSettled(agentPromises);
+    for (const settled of agentResults) {
+      if (settled.status === 'fulfilled') {
+        result.delivered += settled.value.delivered;
+        result.failed += settled.value.failed;
+        result.replied += settled.value.replied;
       }
     }
 
