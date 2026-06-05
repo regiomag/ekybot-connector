@@ -130,6 +130,11 @@ function isSilentRelayReply(value) {
   return normalized.startsWith('no response from');
 }
 
+// Track notifications currently being processed to prevent double-processing.
+// When the server requeues a stale in_progress notification while we're still
+// working on it, we must skip it instead of processing it twice.
+const _activeNotificationIds = new Set();
+
 class EkybotCompanionRelayProcessor {
   constructor(apiClient, gatewayClient, options = {}) {
     this.apiClient = apiClient;
@@ -519,6 +524,32 @@ class EkybotCompanionRelayProcessor {
   }
 
   async processNotification(machineId, notification) {
+    const notificationId = notification?.id;
+
+    // Prevent double-processing: if this notification is already being handled
+    // (e.g. server requeued it as stale while we're still working on it), skip.
+    if (notificationId && _activeNotificationIds.has(notificationId)) {
+      console.log(
+        chalk.yellow(
+          `[relay] ${notificationId} SKIP — already being processed (preventing duplicate response)`
+        )
+      );
+      return { delivered: false, hasReply: false, targetAgentId: 'skipped', sourceChannel: 'skipped' };
+    }
+    if (notificationId) {
+      _activeNotificationIds.add(notificationId);
+    }
+
+    try {
+    return await this._processNotificationInner(machineId, notification);
+    } finally {
+      if (notificationId) {
+        _activeNotificationIds.delete(notificationId);
+      }
+    }
+  }
+
+  async _processNotificationInner(machineId, notification) {
     const relay = notification?.relay || {};
     const target = relay.target || {};
     const requestId = resolveRelayRequestId(notification);
