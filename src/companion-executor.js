@@ -114,14 +114,23 @@ class EkybotCompanionExecutor {
       'bootstrap_include',
       'import_agent',
       'create_agent',
+      'create_runtime_agent',
       'update_agent_model',
+      'update_runtime_agent',
       'update_agent_bindings',
       'update_workspace_templates',
       'archive_agent',
     ]);
 
+    // Runtime-neutral operation types (create_runtime_agent / update_runtime_agent) are
+    // emitted by newer web builds; the legacy types stay accepted for compatibility.
+    const isCreateAgentOp =
+      operation.type === 'create_agent' || operation.type === 'create_runtime_agent';
+    const isUpdateModelOp =
+      operation.type === 'update_agent_model' || operation.type === 'update_runtime_agent';
+
     // Handle Hermes profile creation
-    if (operation.type === 'create_agent' && operation.payload?.action === 'create_hermes_profile') {
+    if (isCreateAgentOp && operation.payload?.action === 'create_hermes_profile') {
       const profileName = operation.payload.profileName;
       if (!profileName || typeof profileName !== 'string') {
         throw new Error('Missing profileName in create_hermes_profile payload');
@@ -205,7 +214,7 @@ class EkybotCompanionExecutor {
     }
 
     // Handle Hermes model update
-    if (operation.type === 'update_agent_model' && operation.payload?.action === 'update_hermes_model') {
+    if (isUpdateModelOp && operation.payload?.action === 'update_hermes_model') {
       const { profileName: profile, model: newModel } = operation.payload;
       if (!profile || !newModel) {
         throw new Error('Missing profileName or model in update_hermes_model payload');
