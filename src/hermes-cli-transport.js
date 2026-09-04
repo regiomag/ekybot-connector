@@ -39,6 +39,8 @@
 
 const crypto = require('crypto');
 
+const { assertValidProfile } = require('./runtime-adapter');
+
 // `hermes-client` is required lazily, not at module load: it pulls in the
 // subprocess stack and its dependencies. A caller that injects `execute` and
 // `healthCheck` (tests, or a future transport) never needs it.
@@ -73,6 +75,10 @@ class HermesCliTransport {
    * @returns {Promise<{runId: string, status: 'completed'}>}
    */
   async startRun({ profile, input, sessionId, idempotencyKey, timeoutMs, systemPrompt } = {}) {
+    // hermes-client turns this into ~/.hermes/profiles/<profile> via path.join,
+    // where '../..' would escape. Validate before it reaches the filesystem.
+    assertValidProfile(profile);
+
     if (idempotencyKey) {
       const existingRunId = this.idempotency.get(idempotencyKey);
       if (existingRunId) {

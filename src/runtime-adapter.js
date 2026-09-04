@@ -65,4 +65,29 @@ const RUN_STATUS = Object.freeze({
   STOPPING: 'stopping',
 });
 
-module.exports = { RUN_STATUS };
+// A runtime profile name reaches both a filesystem path
+// (~/.hermes/profiles/<name>, via HERMES_HOME) and a URL. It arrives from the
+// control plane, so it is not attacker-controlled in the usual sense — but it
+// crosses a trust boundary and lands in path.join(), where '../..' escapes.
+// Validate once, here, rather than in each transport.
+const PROFILE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+const MAX_PROFILE_LENGTH = 64;
+
+/**
+ * Throws unless `profile` is a safe profile name.
+ * `null`, `undefined` and 'default' mean "the default profile" and are allowed.
+ */
+function assertValidProfile(profile) {
+  if (profile === undefined || profile === null || profile === 'default') {
+    return;
+  }
+  if (
+    typeof profile !== 'string' ||
+    profile.length > MAX_PROFILE_LENGTH ||
+    !PROFILE_PATTERN.test(profile)
+  ) {
+    throw new Error(`Invalid Hermes profile: ${JSON.stringify(profile)}`);
+  }
+}
+
+module.exports = { RUN_STATUS, assertValidProfile, PROFILE_PATTERN, MAX_PROFILE_LENGTH };

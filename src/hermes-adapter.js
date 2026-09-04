@@ -24,6 +24,7 @@
  * removal is a Phase 3 acceptance criterion.
  */
 
+const { assertValidProfile } = require('./runtime-adapter');
 const HermesHttpTransport = require('./hermes-http-transport');
 const HermesCliTransport = require('./hermes-cli-transport');
 
@@ -96,11 +97,13 @@ class HermesAdapter {
   }
 
   async startRun(params) {
+    assertValidProfile(params?.profile);
     const { transport } = await this.selectTransport();
     return transport.startRun(params);
   }
 
   async getRun(params) {
+    assertValidProfile(params?.profile);
     const { transport } = await this.selectTransport();
     return transport.getRun(params);
   }
@@ -159,6 +162,7 @@ class HermesAdapter {
   }
 
   async stopRun(params) {
+    assertValidProfile(params?.profile);
     const { transport } = await this.selectTransport();
     return transport.stopRun(params);
   }

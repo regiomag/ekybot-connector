@@ -36,6 +36,19 @@ describe('HermesCliTransport', () => {
     });
   });
 
+  it('rejects a traversing profile name before it reaches the filesystem', async () => {
+    // hermes-client resolves HERMES_HOME with path.join(~/.hermes/profiles, profile),
+    // so '../..' escapes the profiles directory.
+    const transport = new HermesCliTransport({
+      execute: async () => { throw new Error('must not execute'); },
+    });
+
+    await assert.rejects(
+      () => transport.startRun({ profile: '../../etc', input: 'hi' }),
+      /Invalid Hermes profile/,
+    );
+  });
+
   it('replays a successful run for the same idempotency key without executing twice', async () => {
     let executions = 0;
     const transport = new HermesCliTransport({

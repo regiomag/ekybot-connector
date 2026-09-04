@@ -134,6 +134,22 @@ describe('HermesAdapter transport selection', () => {
     assert.equal(status.runtime, 'hermes');
   });
 
+  it('validates the profile at the facade, whichever transport is selected', async () => {
+    for (const forced of ['cli', 'http']) {
+      const { adapter, httpTransport, cliTransport } = adapterWith({ transport: forced });
+
+      await assert.rejects(
+        () => adapter.startRun({ profile: '../../etc', input: 'hi' }),
+        /Invalid Hermes profile/,
+        `transport=${forced}`,
+      );
+
+      // rejected before reaching any transport
+      assert.equal(httpTransport.calls.length, 0);
+      assert.equal(cliTransport.calls.length, 0);
+    }
+  });
+
   it('runToCompletion returns the output directly when the run is already terminal', async () => {
     // The CLI transport is synchronous: startRun already reports 'completed'.
     const cliTransport = {

@@ -21,12 +21,9 @@
  * memory, skills and tools.
  */
 
-const DEFAULT_BASE_URL = 'http://127.0.0.1:8642';
+const { assertValidProfile } = require('./runtime-adapter');
 
-// Hermes profile names are directory names under ~/.hermes/profiles/.
-// Keep this strict: the value reaches both a filesystem path and a URL.
-const PROFILE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
-const MAX_PROFILE_LENGTH = 64;
+const DEFAULT_BASE_URL = 'http://127.0.0.1:8642';
 
 class HermesHttpTransport {
   /**
@@ -180,19 +177,6 @@ class HermesHttpTransport {
     }
 
     return response.json();
-  }
-}
-
-function assertValidProfile(profile) {
-  if (profile === undefined || profile === null || profile === 'default') {
-    return;
-  }
-  if (
-    typeof profile !== 'string' ||
-    profile.length > MAX_PROFILE_LENGTH ||
-    !PROFILE_PATTERN.test(profile)
-  ) {
-    throw new Error(`Invalid Hermes profile: ${JSON.stringify(profile)}`);
   }
 }
 
