@@ -1,220 +1,143 @@
 /**
- * Hermes Runtime Adapter — HTTP transport
+ * Hermes Runtime Adapter — facade
  *
- * Implements the RuntimeAdapter contract against the Hermes API Server
- * (Runs API). One Hermes profile = one Ekybot agent = one local gateway
- * process listening on its own port.
+ * Implements the RuntimeAdapter contract (see runtime-adapter.js) and
+ * delegates to one of two transports:
  *
- * Network calls: local only — HTTP to the Hermes gateway(s) on 127.0.0.1.
- * No third-party endpoint is contacted from this module, and no LLM provider
- * key transits through it: each gateway authenticates to its own provider
- * locally.
+ *   HermesHttpTransport  — Runs API, the target (plan §5.2)
+ *   HermesCliTransport   — `hermes chat -q` subprocess, the existing path
  *
- * Topology (decided 2026-09-04, see migration plan §12.4 / §13.3):
- *   Profile isolation is by HERMES_HOME, which implies one gateway process
- *   per profile, hence one port per profile. The profile -> base URL mapping
- *   is a static table passed in `profiles`. There is NO `/p/<profile>/`
- *   prefix: api_server.py registers no prefixed routes (only webhook.py does).
+ * Network calls: none of its own; see the transports.
  *
- * An unknown profile throws rather than falling back to the default gateway:
- * silently running a prompt against the wrong profile would use the wrong
- * memory, skills and tools.
+ * Transport selection (plan §13.2), in order:
+ *   1. EKYBOT_HERMES_TRANSPORT=http|cli   — explicit escape hatch
+ *   2. GET /v1/capabilities answers        — http
+ *   3. otherwise                           — cli
+ *
+ * The probe result is memoized: bringing the API Server up on a running
+ * daemon does not switch transport until the daemon restarts, or until
+ * something calls resetTransportSelection(). That is deliberate — re-probing
+ * on every run would add a round trip to each relay message.
+ *
+ * The CLI transport is a migration stopgap. Per plan §13.2 it is acceptable
+ * until the end of Phase 2 and forbidden in Phase 3 for any new agent; its
+ * removal is a Phase 3 acceptance criterion.
  */
 
-const DEFAULT_BASE_URL = 'http://127.0.0.1:8642';
+const HermesHttpTransport = require('./hermes-http-transport');
+const HermesCliTransport = require('./hermes-cli-transport');
 
-// Hermes profile names are directory names under ~/.hermes/profiles/.
-// Keep this strict: the value reaches both a filesystem path and a URL.
-const PROFILE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
-const MAX_PROFILE_LENGTH = 64;
+const VALID_TRANSPORTS = new Set(['http', 'cli']);
 
 class HermesAdapter {
   /**
    * @param {object} options
-   * @param {string} [options.baseUrl] - Gateway serving the `default` profile.
-   * @param {Record<string,string>} [options.profiles] - Static profile -> base URL table.
-   * @param {string} [options.apiKey] - API_SERVER_KEY of the gateway.
-   * @param {Function} [options.fetch] - Injected fetch (no real network in tests).
-   * @param {Function} [options.resolveProfileBaseUrl] - Overrides resolution entirely,
-   *   so a future discovery mechanism replaces one function and nothing else.
+   * @param {object} [options.http] - Options forwarded to HermesHttpTransport.
+   * @param {object} [options.cli] - Options forwarded to HermesCliTransport.
+   * @param {'http'|'cli'} [options.transport] - Force a transport (skips the probe).
+   * @param {object} [options.env] - Environment to read EKYBOT_HERMES_TRANSPORT from.
+   * @param {object} [options.httpTransport] - Pre-built transport (tests).
+   * @param {object} [options.cliTransport] - Pre-built transport (tests).
    */
   constructor(options = {}) {
     const {
-      baseUrl = DEFAULT_BASE_URL,
-      profiles = {},
-      apiKey = null,
-      fetch: fetchImpl = globalThis.fetch,
-      resolveProfileBaseUrl = null,
+      http = {},
+      cli = {},
+      transport = null,
+      env = process.env,
+      httpTransport = null,
+      cliTransport = null,
     } = options;
 
-    this.baseUrl = stripTrailingSlash(baseUrl);
-    this.profiles = profiles;
-    this.apiKey = apiKey;
-    this.fetchImpl = fetchImpl;
-    this.resolveProfileBaseUrlOverride = resolveProfileBaseUrl;
+    this.httpTransport = httpTransport || new HermesHttpTransport(http);
+    this.cliTransport = cliTransport || new HermesCliTransport(cli);
+
+    this.forcedTransport = normalizeTransport(transport) || readEnvTransport(env);
+    this.selectedName = null;
+    this.selectionPromise = null;
   }
 
   /**
-   * Resolve the gateway base URL for a profile.
-   * The single point to change when port discovery stops being a static table.
+   * Resolve which transport to use, memoized.
+   * @returns {Promise<{name: 'http'|'cli', transport: object}>}
    */
-  resolveProfileBaseUrl(profile) {
-    assertValidProfile(profile);
-
-    if (this.resolveProfileBaseUrlOverride) {
-      return stripTrailingSlash(this.resolveProfileBaseUrlOverride(profile));
+  async selectTransport() {
+    if (this.forcedTransport) {
+      this.selectedName = this.forcedTransport;
+      return { name: this.forcedTransport, transport: this.transportByName(this.forcedTransport) };
     }
 
-    if (!profile || profile === 'default') {
-      return this.baseUrl;
+    if (!this.selectionPromise) {
+      this.selectionPromise = this.probeTransport();
     }
 
-    const configured = this.profiles[profile];
-    if (!configured) {
-      throw new Error(
-        `Unknown Hermes profile "${profile}": no gateway configured. ` +
-          `Add it to the profiles table (profile -> base URL).`
-      );
-    }
-
-    return stripTrailingSlash(configured);
+    const name = await this.selectionPromise;
+    this.selectedName = name;
+    return { name, transport: this.transportByName(name) };
   }
 
-  async startRun({ profile, input, sessionId, idempotencyKey } = {}) {
-    const base = this.resolveProfileBaseUrl(profile);
-
-    const headers = this.buildHeaders();
-    if (idempotencyKey) {
-      headers['Idempotency-Key'] = idempotencyKey;
+  async probeTransport() {
+    try {
+      await this.httpTransport.discover();
+      return 'http';
+    } catch {
+      return 'cli';
     }
-
-    const body = { input };
-    if (sessionId) {
-      body.session_id = sessionId;
-    }
-
-    const payload = await this.request(`${base}/v1/runs`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-    });
-
-    return { runId: payload.run_id, status: payload.status };
   }
 
-  async getRun({ profile, runId } = {}) {
-    const base = this.resolveProfileBaseUrl(profile);
-    assertRunId(runId);
-
-    const payload = await this.request(`${base}/v1/runs/${encodeURIComponent(runId)}`, {
-      headers: this.buildHeaders(),
-    });
-
-    return {
-      runId: payload.run_id,
-      status: payload.status,
-      output: payload.output,
-      usage: payload.usage,
-    };
+  /** Forget the memoized probe, e.g. after the API Server has been enabled. */
+  resetTransportSelection() {
+    this.selectionPromise = null;
+    this.selectedName = null;
   }
 
-  async stopRun({ profile, runId } = {}) {
-    const base = this.resolveProfileBaseUrl(profile);
-    assertRunId(runId);
+  transportByName(name) {
+    return name === 'http' ? this.httpTransport : this.cliTransport;
+  }
 
-    const payload = await this.request(
-      `${base}/v1/runs/${encodeURIComponent(runId)}/stop`,
-      { method: 'POST', headers: this.buildHeaders() }
-    );
+  async startRun(params) {
+    const { transport } = await this.selectTransport();
+    return transport.startRun(params);
+  }
 
-    return { runId: payload.run_id, status: payload.status };
+  async getRun(params) {
+    const { transport } = await this.selectTransport();
+    return transport.getRun(params);
+  }
+
+  async stopRun(params) {
+    const { transport } = await this.selectTransport();
+    return transport.stopRun(params);
   }
 
   /**
-   * Report runtime health and capabilities.
-   * Deliberately returns no configuration value (no base URL, no API key):
-   * this result is uploaded to Ekybot as inventory.
+   * Reports health, capabilities and which transport is in use.
+   * Returns no configuration value: this result is uploaded to Ekybot as
+   * inventory.
    */
-  async discover({ profile } = {}) {
-    const base = this.resolveProfileBaseUrl(profile);
-
-    const capabilitiesPayload = await this.request(`${base}/v1/capabilities`, {
-      headers: this.buildHeaders(),
-    });
-    const healthPayload = await this.request(`${base}/health`, {
-      headers: this.buildHeaders(),
-    });
-
-    return {
-      runtime: 'hermes',
-      healthy: healthPayload?.status === 'ok',
-      capabilities: capabilitiesPayload?.features ?? {},
-    };
+  async discover(params) {
+    const { name, transport } = await this.selectTransport();
+    const status = await transport.discover(params);
+    return { ...status, transport: name };
   }
 
-  async health({ profile } = {}) {
-    const { healthy } = await this.discover({ profile });
-    return { runtime: 'hermes', healthy };
-  }
-
-  buildHeaders() {
-    const headers = { 'Content-Type': 'application/json' };
-    if (this.apiKey) {
-      headers.Authorization = `Bearer ${this.apiKey}`;
-    }
-    return headers;
-  }
-
-  async request(url, options) {
-    if (typeof this.fetchImpl !== 'function') {
-      throw new Error('No fetch implementation available for HermesAdapter');
-    }
-
-    const response = await this.fetchImpl(url, options);
-
-    if (!response.ok) {
-      const detail = await safeText(response);
-      throw new Error(
-        `Hermes request failed (${response.status}) on ${url}${detail ? `: ${detail}` : ''}`
-      );
-    }
-
-    return response.json();
+  async health(params) {
+    const { transport } = await this.selectTransport();
+    return transport.health(params);
   }
 }
 
-function assertValidProfile(profile) {
-  if (profile === undefined || profile === null || profile === 'default') {
-    return;
-  }
-  if (
-    typeof profile !== 'string' ||
-    profile.length > MAX_PROFILE_LENGTH ||
-    !PROFILE_PATTERN.test(profile)
-  ) {
-    throw new Error(`Invalid Hermes profile: ${JSON.stringify(profile)}`);
-  }
+function normalizeTransport(value) {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  return VALID_TRANSPORTS.has(normalized) ? normalized : null;
 }
 
-function assertRunId(runId) {
-  if (typeof runId !== 'string' || !runId.trim()) {
-    throw new Error('Missing run id');
-  }
-}
-
-function stripTrailingSlash(url) {
-  return typeof url === 'string' ? url.replace(/\/+$/, '') : url;
-}
-
-async function safeText(response) {
-  try {
-    const text = await response.text();
-    return text ? text.slice(0, 500) : '';
-  } catch {
-    return '';
-  }
+function readEnvTransport(env) {
+  return normalizeTransport(env && env.EKYBOT_HERMES_TRANSPORT);
 }
 
 module.exports = HermesAdapter;
 module.exports.HermesAdapter = HermesAdapter;
-module.exports.DEFAULT_BASE_URL = DEFAULT_BASE_URL;
+module.exports.HermesHttpTransport = HermesHttpTransport;
+module.exports.HermesCliTransport = HermesCliTransport;

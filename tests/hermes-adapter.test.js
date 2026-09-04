@@ -1,153 +1,145 @@
-/**
- * NOTE (2026-09-04) — profile topology corrected.
- *
- * Two of these tests previously asserted URLs of the form
- * `http://127.0.0.1:8642/p/research/v1/runs`. That prefix does not exist:
- * `api_server.py` registers /health, /v1/models, /v1/capabilities, /v1/runs…
- * with no prefixed variant; only `webhook.py` registers
- * `/p/{profile}/webhooks/{route}`.
- *
- * Decided topology: one gateway process per profile (profile isolation is by
- * HERMES_HOME), so one port per profile, resolved through a static
- * profile -> base URL table. See migration plan §12.4 / §13.3.
- */
-
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 
 const HermesAdapter = require('../src/hermes-adapter');
 
-// Static profile table: `research` runs on its own gateway/port.
-const PROFILES = { research: 'http://127.0.0.1:8643' };
+function fakeTransport(name, { discoverImpl } = {}) {
+  return {
+    name,
+    calls: [],
+    async startRun(params) {
+      this.calls.push(['startRun', params]);
+      return { runId: `${name}_run`, status: 'started' };
+    },
+    async getRun(params) {
+      this.calls.push(['getRun', params]);
+      return { runId: `${name}_run`, status: 'completed' };
+    },
+    async stopRun(params) {
+      this.calls.push(['stopRun', params]);
+      return { runId: `${name}_run`, status: 'cancelled' };
+    },
+    async discover() {
+      this.calls.push(['discover']);
+      if (discoverImpl) return discoverImpl();
+      return { runtime: 'hermes', healthy: true, capabilities: {} };
+    },
+    async health() {
+      this.calls.push(['health']);
+      return { runtime: 'hermes', healthy: true };
+    },
+  };
+}
 
-describe('HermesAdapter', () => {
-  it('rejects unsafe profile names before sending a request', async () => {
-    const adapter = new HermesAdapter({ fetch: async () => { throw new Error('must not fetch'); } });
+function adapterWith({ httpDiscover, env = {}, transport } = {}) {
+  const httpTransport = fakeTransport('http', { discoverImpl: httpDiscover });
+  const cliTransport = fakeTransport('cli');
+  const adapter = new HermesAdapter({ httpTransport, cliTransport, env, transport });
+  return { adapter, httpTransport, cliTransport };
+}
 
-    await assert.rejects(
-      () => adapter.startRun({ profile: '../unsafe', input: 'hello', idempotencyKey: 'request-1' }),
-      /Invalid Hermes profile/
-    );
+describe('HermesAdapter transport selection', () => {
+  it('uses HTTP when the API Server answers /v1/capabilities', async () => {
+    const { adapter, httpTransport, cliTransport } = adapterWith();
+
+    await adapter.startRun({ input: 'hi' });
+
+    assert.equal(httpTransport.calls.some(([m]) => m === 'startRun'), true);
+    assert.equal(cliTransport.calls.length, 0);
   });
 
-  it('rejects a profile with no configured gateway instead of falling back', async () => {
-    const adapter = new HermesAdapter({
-      baseUrl: 'http://127.0.0.1:8642',
-      fetch: async () => { throw new Error('must not fetch'); },
+  it('falls back to the CLI when the API Server is unreachable', async () => {
+    const { adapter, cliTransport } = adapterWith({
+      httpDiscover: () => { throw new Error('ECONNREFUSED'); },
     });
 
-    await assert.rejects(
-      () => adapter.startRun({ profile: 'research', input: 'hello' }),
-      /Unknown Hermes profile/
-    );
+    await adapter.startRun({ input: 'hi' });
+
+    assert.equal(cliTransport.calls.some(([m]) => m === 'startRun'), true);
   });
 
-  it('starts an idempotent run against the selected local profile', async () => {
-    const requests = [];
-    const adapter = new HermesAdapter({
-      baseUrl: 'http://127.0.0.1:8642',
-      profiles: PROFILES,
-      apiKey: 'local-key',
-      fetch: async (url, options) => {
-        requests.push({ url, options });
-        return jsonResponse({ run_id: 'run_123', status: 'started' });
+  it('EKYBOT_HERMES_TRANSPORT overrides the probe', async () => {
+    const { adapter, httpTransport, cliTransport } = adapterWith({
+      env: { EKYBOT_HERMES_TRANSPORT: 'cli' },
+    });
+
+    await adapter.startRun({ input: 'hi' });
+
+    // forced: the probe never runs
+    assert.equal(httpTransport.calls.length, 0);
+    assert.equal(cliTransport.calls.some(([m]) => m === 'startRun'), true);
+  });
+
+  it('an explicit transport option wins over the environment', async () => {
+    const { adapter, httpTransport } = adapterWith({
+      env: { EKYBOT_HERMES_TRANSPORT: 'cli' },
+      transport: 'http',
+    });
+
+    await adapter.startRun({ input: 'hi' });
+
+    assert.equal(httpTransport.calls.some(([m]) => m === 'startRun'), true);
+  });
+
+  it('ignores an unrecognised transport value and probes instead', async () => {
+    const { adapter, httpTransport } = adapterWith({
+      env: { EKYBOT_HERMES_TRANSPORT: 'carrier-pigeon' },
+    });
+
+    await adapter.startRun({ input: 'hi' });
+
+    assert.equal(httpTransport.calls.some(([m]) => m === 'discover'), true);
+  });
+
+  it('probes once and memoizes the result', async () => {
+    let probes = 0;
+    const { adapter } = adapterWith({
+      httpDiscover: () => {
+        probes += 1;
+        return { runtime: 'hermes', healthy: true, capabilities: {} };
       },
     });
 
-    const result = await adapter.startRun({
-      profile: 'research',
-      input: 'Summarize this',
-      sessionId: 'channel-research',
-      idempotencyKey: 'relay-123',
-    });
+    await adapter.startRun({ input: 'a' });
+    await adapter.startRun({ input: 'b' });
+    await adapter.getRun({ runId: 'x' });
 
-    assert.deepEqual(result, { runId: 'run_123', status: 'started' });
-    assert.equal(requests.length, 1);
-    assert.equal(requests[0].url, 'http://127.0.0.1:8643/v1/runs');
-    assert.equal(requests[0].options.headers.Authorization, 'Bearer local-key');
-    assert.equal(requests[0].options.headers['Idempotency-Key'], 'relay-123');
-    assert.deepEqual(JSON.parse(requests[0].options.body), {
-      input: 'Summarize this',
-      session_id: 'channel-research',
-    });
+    assert.equal(probes, 1);
   });
 
-  it('routes the default profile to the base gateway', async () => {
-    const requests = [];
-    const adapter = new HermesAdapter({
-      baseUrl: 'http://127.0.0.1:8642',
-      profiles: PROFILES,
-      fetch: async (url, options) => {
-        requests.push({ url, options });
-        return jsonResponse({ run_id: 'run_9', status: 'started' });
+  it('re-probes after resetTransportSelection()', async () => {
+    let probes = 0;
+    const { adapter } = adapterWith({
+      httpDiscover: () => {
+        probes += 1;
+        return { runtime: 'hermes', healthy: true, capabilities: {} };
       },
     });
 
-    await adapter.startRun({ profile: 'default', input: 'hi' });
-    assert.equal(requests[0].url, 'http://127.0.0.1:8642/v1/runs');
+    await adapter.startRun({ input: 'a' });
+    adapter.resetTransportSelection();
+    await adapter.startRun({ input: 'b' });
+
+    assert.equal(probes, 2);
   });
 
-  it('reports health and capabilities without exposing configuration values', async () => {
-    const adapter = new HermesAdapter({
-      fetch: async (url) => {
-        if (url.endsWith('/v1/capabilities')) {
-          return jsonResponse({ features: { run_submission: true, run_stop: true } });
-        }
-        return jsonResponse({ status: 'ok' });
-      },
+  it('discover() reports which transport is in use', async () => {
+    const { adapter } = adapterWith({
+      httpDiscover: () => { throw new Error('down'); },
     });
 
     const status = await adapter.discover();
 
-    assert.deepEqual(status, {
-      runtime: 'hermes',
-      healthy: true,
-      capabilities: { run_submission: true, run_stop: true },
-    });
+    assert.equal(status.transport, 'cli');
+    assert.equal(status.runtime, 'hermes');
   });
 
-  it('gets and stops a run through the profile endpoint', async () => {
-    const requests = [];
-    const adapter = new HermesAdapter({
-      profiles: PROFILES,
-      fetch: async (url, options = {}) => {
-        requests.push({ url, options });
-        if (options.method === 'POST') return jsonResponse({ run_id: 'run_123', status: 'cancelled' });
-        return jsonResponse({ run_id: 'run_123', status: 'completed', output: 'Done' });
-      },
-    });
+  it('delegates stopRun to the selected transport', async () => {
+    const { adapter, httpTransport } = adapterWith({ transport: 'http' });
 
-    assert.deepEqual(await adapter.getRun({ profile: 'research', runId: 'run_123' }), {
-      runId: 'run_123', status: 'completed', output: 'Done', usage: undefined,
-    });
-    assert.deepEqual(await adapter.stopRun({ profile: 'research', runId: 'run_123' }), {
-      runId: 'run_123', status: 'cancelled',
-    });
-    assert.equal(requests[0].url, 'http://127.0.0.1:8643/v1/runs/run_123');
-    assert.equal(requests[1].url, 'http://127.0.0.1:8643/v1/runs/run_123/stop');
-    assert.equal(requests[1].options.method, 'POST');
-  });
+    const result = await adapter.stopRun({ profile: 'research', runId: 'run_1' });
 
-  it('resolution is injectable so port discovery can change in one place', async () => {
-    const requests = [];
-    const adapter = new HermesAdapter({
-      resolveProfileBaseUrl: (profile) => `http://127.0.0.1:9000/${profile}`,
-      fetch: async (url, options) => {
-        requests.push({ url, options });
-        return jsonResponse({ run_id: 'run_1', status: 'started' });
-      },
-    });
-
-    await adapter.startRun({ profile: 'research', input: 'hi' });
-    assert.equal(requests[0].url, 'http://127.0.0.1:9000/research/v1/runs');
+    assert.equal(result.status, 'cancelled');
+    assert.equal(httpTransport.calls.some(([m]) => m === 'stopRun'), true);
   });
 });
-
-function jsonResponse(payload, status = 200) {
-  return {
-    ok: status >= 200 && status < 300,
-    status,
-    async json() { return payload; },
-    async text() { return JSON.stringify(payload); },
-  };
-}
