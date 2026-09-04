@@ -134,6 +134,73 @@ describe('HermesAdapter transport selection', () => {
     assert.equal(status.runtime, 'hermes');
   });
 
+  it('runToCompletion returns the output directly when the run is already terminal', async () => {
+    // The CLI transport is synchronous: startRun already reports 'completed'.
+    const cliTransport = {
+      async startRun() { return { runId: 'cli_1', status: 'completed' }; },
+      async getRun() { return { runId: 'cli_1', status: 'completed', output: 'Réponse finale' }; },
+      async discover() { return { runtime: 'hermes', healthy: true, capabilities: {} }; },
+    };
+    const adapter = new HermesAdapter({ cliTransport, transport: 'cli' });
+
+    const result = await adapter.runToCompletion({ input: 'hi' });
+
+    assert.equal(result.content, 'Réponse finale');
+    assert.equal(result.status, 'completed');
+    assert.equal(result.runId, 'cli_1');
+  });
+
+  it('runToCompletion polls an async run until it is terminal', async () => {
+    const statuses = ['running', 'running', 'completed'];
+    let getRunCalls = 0;
+    const httpTransport = {
+      async startRun() { return { runId: 'run_1', status: 'started' }; },
+      async getRun() {
+        const status = statuses[Math.min(getRunCalls, statuses.length - 1)];
+        getRunCalls += 1;
+        return { runId: 'run_1', status, output: status === 'completed' ? 'Done' : undefined };
+      },
+      async discover() { return { runtime: 'hermes', healthy: true, capabilities: {} }; },
+    };
+    const adapter = new HermesAdapter({ httpTransport, transport: 'http' });
+
+    const result = await adapter.runToCompletion(
+      { input: 'hi' },
+      { sleep: async () => {}, pollIntervalMs: 0 },
+    );
+
+    assert.equal(result.content, 'Done');
+    assert.equal(getRunCalls, 3);
+  });
+
+  it('runToCompletion throws on a failed run', async () => {
+    const httpTransport = {
+      async startRun() { return { runId: 'run_2', status: 'failed' }; },
+      async getRun() { return { runId: 'run_2', status: 'failed', output: 'boom' }; },
+      async discover() { return { runtime: 'hermes', healthy: true, capabilities: {} }; },
+    };
+    const adapter = new HermesAdapter({ httpTransport, transport: 'http' });
+
+    await assert.rejects(() => adapter.runToCompletion({ input: 'hi' }), /failed.*boom/);
+  });
+
+  it('runToCompletion gives up after maxWaitMs', async () => {
+    const httpTransport = {
+      async startRun() { return { runId: 'run_3', status: 'started' }; },
+      async getRun() { return { runId: 'run_3', status: 'running' }; },
+      async discover() { return { runtime: 'hermes', healthy: true, capabilities: {} }; },
+    };
+    const adapter = new HermesAdapter({ httpTransport, transport: 'http' });
+
+    await assert.rejects(
+      () => adapter.runToCompletion(
+        { input: 'hi' },
+        { sleep: async () => {}, pollIntervalMs: 0, maxWaitMs: -1 },
+      ),
+      /still running/,
+    );
+  });
+
   it('delegates stopRun to the selected transport', async () => {
     const { adapter, httpTransport } = adapterWith({ transport: 'http' });
 

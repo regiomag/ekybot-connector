@@ -5,11 +5,8 @@ const Module = require('node:module');
 const originalLoad = Module._load;
 Module._load = function patchedLoad(request, parent, isMain) {
   if (request === 'chalk') {
-    return {
-      gray: (value) => value,
-      green: (value) => value,
-      yellow: (value) => value,
-    };
+    const identity = (value) => value;
+    return new Proxy({}, { get: () => identity });
   }
   return originalLoad.call(this, request, parent, isMain);
 };
@@ -97,6 +94,74 @@ describe('EkybotCompanionRelayProcessor', () => {
       before,
       'the losing hard-timeout timer must be cleared, not left pending',
     );
+  });
+
+  it('routes a Hermes target through the RuntimeAdapter, not the gateway', async () => {
+    const adapterCalls = [];
+    const published = [];
+
+    const processor = new EkybotCompanionRelayProcessor(
+      {
+        updateRelayNotifications: async () => {},
+        postRelayMessage: async (_machineId, payload) => {
+          published.push(payload.content);
+        },
+      },
+      {
+        sendRelayPrompt: async () => {
+          throw new Error('OpenClaw gateway must not be used for a Hermes target');
+        },
+      },
+      {
+        hermesAdapter: {
+          async selectTransport() {
+            return { name: 'cli' };
+          },
+          async runToCompletion(params) {
+            adapterCalls.push(params);
+            return { content: 'Réponse Hermes', runId: 'cli_1', status: 'completed' };
+          },
+        },
+        stateStore: {
+          upsertActiveRequest() {},
+          clearActiveRequest() {},
+          load() {
+            return { activeRequests: [] };
+          },
+        },
+      },
+    );
+
+    await processor.processNotification('machine-1', {
+      id: 'notif-hermes',
+      toAgentId: 'agent-hermes',
+      threadId: 'support',
+      fromAgentName: 'Odin',
+      relay: {
+        type: 'channel_dispatch',
+        runtime: { requestId: 'req-hermes' },
+        source: { channelKey: 'support', agentName: 'Odin' },
+        target: {
+          agentId: 'agent-hermes',
+          name: 'Hermes Agent',
+          provider: 'hermes',
+          metadata: { hermesProfile: 'research' },
+        },
+        message: { content: 'Peux-tu répondre ?' },
+      },
+    });
+
+    assert.strictEqual(adapterCalls.length, 1);
+    assert.strictEqual(adapterCalls[0].profile, 'research');
+    // the adapter receives the built relay prompt, which wraps the message
+    assert.ok(
+      adapterCalls[0].input.includes('Peux-tu répondre ?'),
+      'the relay prompt must carry the message content',
+    );
+    // the relay request id becomes the idempotency key, so a retry replays
+    assert.strictEqual(adapterCalls[0].idempotencyKey, 'req-hermes');
+    assert.ok(adapterCalls[0].sessionId, 'session key must be forwarded');
+    assert.deepStrictEqual(published, ['Réponse Hermes']);
   });
 
   it('publishes the relay message before acknowledging delivery', async () => {

@@ -105,6 +105,59 @@ class HermesAdapter {
     return transport.getRun(params);
   }
 
+  /**
+   * Start a run and return its output once terminal.
+   *
+   * The relay expects one call that yields the answer. The CLI transport is
+   * already synchronous, so this costs one extra getRun; the HTTP transport
+   * returns 'started' and is polled here, which keeps run-awareness inside the
+   * adapter instead of spreading it through the relay.
+   *
+   * A failed run throws, matching what executeHermes did before.
+   *
+   * @returns {Promise<{content: string, runId: string, status: string, usage?: object}>}
+   */
+  async runToCompletion(params = {}, options = {}) {
+    const {
+      pollIntervalMs = 1_000,
+      maxWaitMs = null,
+      sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    } = options;
+
+    const handle = await this.startRun(params);
+    let run = isTerminalStatus(handle.status)
+      ? await this.getRun({ profile: params.profile, runId: handle.runId })
+      : null;
+
+    if (!run) {
+      const deadline = maxWaitMs ? Date.now() + maxWaitMs : null;
+      for (;;) {
+        await sleep(pollIntervalMs);
+        const polled = await this.getRun({ profile: params.profile, runId: handle.runId });
+        if (isTerminalStatus(polled.status)) {
+          run = polled;
+          break;
+        }
+        if (deadline && Date.now() >= deadline) {
+          throw new Error(
+            `Hermes run ${handle.runId} still ${polled.status} after ${maxWaitMs}ms`
+          );
+        }
+      }
+    }
+
+    if (run.status === 'failed') {
+      throw new Error(`Hermes run ${run.runId} failed${run.output ? `: ${run.output}` : ''}`);
+    }
+
+    return {
+      content: run.output,
+      runId: run.runId,
+      status: run.status,
+      usage: run.usage,
+    };
+  }
+
   async stopRun(params) {
     const { transport } = await this.selectTransport();
     return transport.stopRun(params);
@@ -125,6 +178,12 @@ class HermesAdapter {
     const { transport } = await this.selectTransport();
     return transport.health(params);
   }
+}
+
+const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
+
+function isTerminalStatus(status) {
+  return TERMINAL_STATUSES.has(status);
 }
 
 function normalizeTransport(value) {

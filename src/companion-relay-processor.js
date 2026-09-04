@@ -11,7 +11,7 @@ const {
 } = require('./relay-continuity');
 const { executeClaudeCode, isClaudeCodeProvider } = require('./claude-code-client');
 const { executeCodex, isCodexProvider } = require('./codex-client');
-const { executeHermes, isHermesProvider } = require('./hermes-client');
+const { isHermesProvider } = require('./hermes-client');
 const { enrichPromptWithMemory } = require('./memory/injector');
 const { processFileAttachments } = require('./file-uploader');
 
@@ -143,6 +143,21 @@ class EkybotCompanionRelayProcessor {
     this.inventoryCollector = options.inventoryCollector || null;
     this.machineId = options.machineId || null;
     this.configManager = options.configManager || new OpenClawConfigManager();
+    this.hermesAdapter = options.hermesAdapter || null;
+  }
+
+  /**
+   * The Hermes RuntimeAdapter, built on first use.
+   *
+   * Lazy so that a processor which never routes to Hermes does not construct
+   * it, and injectable so tests can drive the relay without a runtime.
+   */
+  getHermesAdapter() {
+    if (!this.hermesAdapter) {
+      const HermesAdapter = require('./hermes-adapter');
+      this.hermesAdapter = new HermesAdapter();
+    }
+    return this.hermesAdapter;
   }
 
   /**
@@ -864,7 +879,9 @@ class EkybotCompanionRelayProcessor {
         workingDir: relayWorkingDir || undefined,
       });
     } else if (isHermes) {
-      // Route to Hermes Agent CLI
+      // Route to Hermes through the RuntimeAdapter. The adapter picks its
+      // transport (CLI today, Runs API once the API Server is enabled); the
+      // relay stays transport-agnostic.
       const relaySystemPrompt = typeof target.systemPrompt === 'string' && target.systemPrompt.trim()
         ? target.systemPrompt.trim()
         : null;
@@ -874,14 +891,20 @@ class EkybotCompanionRelayProcessor {
         (target.metadata && typeof target.metadata === 'object' && target.metadata.hermesProfile) ||
         (sourceChannel.includes('dixi') ? 'cortex-dixi' : null) ||
         null;
+
+      const adapter = this.getHermesAdapter();
+      const { name: hermesTransport } = await adapter.selectTransport();
       console.log(
         chalk.magenta(
-          `[relay] ${notification.id} routing to Hermes CLI (provider=${targetProvider} profile=${hermesProfile || 'default'})`
+          `[relay] ${notification.id} routing to Hermes (transport=${hermesTransport} provider=${targetProvider} profile=${hermesProfile || 'default'})`
         )
       );
-      gatewayResult = await executeHermes(prompt, {
-        systemPrompt: relaySystemPrompt || undefined,
+      gatewayResult = await adapter.runToCompletion({
         profile: hermesProfile,
+        input: prompt,
+        sessionId: sessionKey,
+        idempotencyKey: requestId || notification.id,
+        systemPrompt: relaySystemPrompt || undefined,
       });
     } else {
       // Default: OpenClaw gateway
