@@ -452,6 +452,7 @@ class EkybotCompanionRelayProcessor {
     let lastError = null;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      let hardTimeoutHandle = null;
       try {
         console.log(
           chalk.gray(
@@ -466,12 +467,12 @@ class EkybotCompanionRelayProcessor {
             prompt: params.prompt,
             model: params.model,
           }),
-          new Promise((_, reject) =>
-            setTimeout(
+          new Promise((_, reject) => {
+            hardTimeoutHandle = setTimeout(
               () => reject(new Error(`Relay hard-timeout after ${hardTimeoutMs}ms`)),
               hardTimeoutMs
-            )
-          ),
+            );
+          }),
         ]);
 
         console.log(
@@ -490,6 +491,14 @@ class EkybotCompanionRelayProcessor {
         );
         if (attempt < maxAttempts) {
           await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+        }
+      } finally {
+        // Promise.race does not cancel the loser. Without this, every dispatch
+        // — including every successful one — leaves a timer pending for up to
+        // hardTimeoutMs (~10 min by default), holding its closure alive and
+        // keeping the event loop from draining.
+        if (hardTimeoutHandle) {
+          clearTimeout(hardTimeoutHandle);
         }
       }
     }

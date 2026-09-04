@@ -71,6 +71,34 @@ describe('EkybotCompanionRelayProcessor', () => {
     assert.equal(lifecycle.failedMs, 900_000);
   });
 
+  it('clears the hard-timeout timer after a successful dispatch', async () => {
+    // Promise.race does not cancel the loser. When the hard-timeout timer was
+    // left pending, every dispatch held a ~10 min timer alive: the daemon
+    // accumulated one per relay message, and this suite took ~30 minutes to
+    // exit instead of ~40 ms.
+    const countTimers = () =>
+      process.getActiveResourcesInfo().filter((resource) => resource === 'Timeout').length;
+
+    const processor = new EkybotCompanionRelayProcessor(
+      {},
+      { sendRelayPrompt: async () => ({ content: 'Réponse finale' }) },
+    );
+
+    const before = countTimers();
+    await processor.sendRelayPromptWithRetry({
+      notificationId: 'notif-timer',
+      agentId: 'agent-target',
+      sessionKey: 'session-1',
+      prompt: 'Peux-tu répondre ?',
+    });
+
+    assert.strictEqual(
+      countTimers(),
+      before,
+      'the losing hard-timeout timer must be cleared, not left pending',
+    );
+  });
+
   it('publishes the relay message before acknowledging delivery', async () => {
     const order = [];
     const stateStages = [];
