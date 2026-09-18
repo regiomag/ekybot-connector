@@ -78,12 +78,17 @@ async function executeCodex(message, options = {}) {
   );
 
   return new Promise((resolve, reject) => {
-    // codex exec: non-interactive mode
-    // --full-auto: no approval prompts + workspace-write sandbox
+    // codex exec: non-interactive mode.
+    // Current Codex CLI versions replaced the legacy --full-auto flag with
+    // explicit sandbox and approval options.
     // -C: working directory
     const args = [
+      '--ask-for-approval', 'never',
       'exec',
-      '--full-auto',
+      // Project-bound channels may intentionally point at a directory that is
+      // not itself a Git checkout (for example a parent project workspace).
+      '--skip-git-repo-check',
+      '--sandbox', 'workspace-write',
       '-C', resolvedDir,
       message,
     ];
@@ -132,9 +137,9 @@ async function executeCodex(message, options = {}) {
       settle(() => {
         // Codex exec outputs metadata lines then the actual response at the end.
         // Extract just the final agent response.
-        const response = extractCodexResponse(stdout) || stdout.trim() || '[No output]';
+        const response = extractCodexResponse(stdout) || stdout.trim();
 
-        if (code === 0 || response.length > 0) {
+        if (code === 0 && response.length > 0) {
           console.log(
             chalk.magenta(
               `[codex] completed exitCode=${code} responseChars=${response.length}`
@@ -147,7 +152,7 @@ async function executeCodex(message, options = {}) {
             exitCode: code,
           });
         } else {
-          const errMsg = stderr.trim() || `Codex exited with code ${code}`;
+          const errMsg = stderr.trim() || response || `Codex exited with code ${code} without output`;
 
           if (
             stderr.includes('rate limit') ||

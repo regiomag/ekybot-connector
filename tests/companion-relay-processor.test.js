@@ -52,6 +52,39 @@ describe('EkybotCompanionRelayProcessor', () => {
     assert.equal(client.timeoutMs, 60_000);
   });
 
+  it('prefers the direct channel workspace over a shared runtime id', async () => {
+    const processor = new EkybotCompanionRelayProcessor(
+      {
+        fetchDesiredState: async () => ({
+          desiredState: {
+            agents: [
+              {
+                openclawAgentId: 'codex',
+                channelKey: 'codex',
+                workspacePath: '/workspaces/general',
+              },
+              {
+                openclawAgentId: 'codex-bmt',
+                workspacePath: '/projects/BeMyTalent',
+              },
+            ],
+          },
+        }),
+      },
+      {},
+      { machineId: 'machine-1' },
+    );
+
+    assert.equal(
+      await processor.resolveWorkspacePath('codex', 'bmt-code'),
+      '/projects/BeMyTalent',
+    );
+    assert.equal(
+      await processor.resolveWorkspacePath('codex'),
+      '/workspaces/general',
+    );
+  });
+
   it('exposes the continuity thresholds expected by the UI contract', () => {
     assert.equal(DEFAULT_DELAYED_MS, 60_000);
     assert.equal(DEFAULT_STALLED_MS, 180_000);

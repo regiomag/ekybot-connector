@@ -164,15 +164,34 @@ class EkybotCompanionRelayProcessor {
    * Resolve workspace path for an agent from the managed agents inventory.
    * Falls back to null if not found.
    */
-  async resolveWorkspacePath(targetAgentId) {
+  async resolveWorkspacePath(targetAgentId, channelKey = null) {
     if (!this.machineId || !this.apiClient) return null;
     try {
-      const desiredState = await this.apiClient.getDesiredState(this.machineId);
-      const agents = desiredState?.agents || [];
-      const match = agents.find(a =>
+      const desiredStateResponse = typeof this.apiClient.fetchDesiredStateCached === 'function'
+        ? await this.apiClient.fetchDesiredStateCached(this.machineId, { maxAgeMs: 10_000 })
+        : await this.apiClient.fetchDesiredState(this.machineId);
+      const agents = desiredStateResponse?.desiredState?.agents || desiredStateResponse?.agents || [];
+      const normalizedChannelKey = normalizeChannelKey(channelKey);
+      const derivedRuntimeIds = new Set(normalizedChannelKey ? [normalizedChannelKey] : []);
+      if (
+        normalizedChannelKey?.endsWith('-code') &&
+        String(targetAgentId || '').toLowerCase() === 'codex'
+      ) {
+        derivedRuntimeIds.add(`codex-${normalizedChannelKey.slice(0, -'-code'.length)}`);
+      }
+      // A direct channel dispatch carries the most precise project binding.
+      // Prefer it over the legacy/canonical runtime id, which may be shared by
+      // several Codex (or Claude Code) channels.
+      const derivedRuntimeMatch = normalizedChannelKey
+        ? agents.find(a => derivedRuntimeIds.has(String(a.openclawAgentId || '').toLowerCase()))
+        : null;
+      const channelMatch = normalizedChannelKey
+        ? agents.find(a => normalizeChannelKey(a.channelKey) === normalizedChannelKey)
+        : null;
+      const idMatch = agents.find(a =>
         a.openclawAgentId === targetAgentId || a.channelKey === targetAgentId
       );
-      return match?.workspacePath || null;
+      return derivedRuntimeMatch?.workspacePath || channelMatch?.workspacePath || idMatch?.workspacePath || null;
     } catch {
       return null;
     }
@@ -817,9 +836,16 @@ class EkybotCompanionRelayProcessor {
       let relayWorkingDir = typeof target.workingDir === 'string' && target.workingDir.trim()
         ? target.workingDir.trim()
         : null;
-      // Resolve workspace path from managed agents if not provided in the notification
-      if (!relayWorkingDir) {
-        relayWorkingDir = await this.resolveWorkspacePath(targetAgentId) || null;
+      // For direct dispatches the channel binding is authoritative, including
+      // when the server supplied a legacy generic workingDir for the runtime.
+      if (type === 'channel_dispatch') {
+        relayWorkingDir = await this.resolveWorkspacePath(targetAgentId, sourceChannel)
+          || relayWorkingDir;
+      } else if (!relayWorkingDir) {
+        relayWorkingDir = await this.resolveWorkspacePath(
+          targetAgentId,
+          null,
+        ) || null;
       }
       const relaySystemPrompt = typeof target.systemPrompt === 'string' && target.systemPrompt.trim()
         ? target.systemPrompt.trim()
@@ -867,8 +893,14 @@ class EkybotCompanionRelayProcessor {
       let relayWorkingDir = typeof target.workingDir === 'string' && target.workingDir.trim()
         ? target.workingDir.trim()
         : null;
-      if (!relayWorkingDir) {
-        relayWorkingDir = await this.resolveWorkspacePath(targetAgentId) || null;
+      if (type === 'channel_dispatch') {
+        relayWorkingDir = await this.resolveWorkspacePath(targetAgentId, sourceChannel)
+          || relayWorkingDir;
+      } else if (!relayWorkingDir) {
+        relayWorkingDir = await this.resolveWorkspacePath(
+          targetAgentId,
+          null,
+        ) || null;
       }
       console.log(
         chalk.magenta(
