@@ -7,7 +7,7 @@
  * Network calls: NONE (local subprocess only).
  * External dependency: `codex` CLI must be installed and authenticated.
  *
- * Billing model: OpenAI API tokens.
+ * Billing model: the locally authenticated Codex subscription/session.
  */
 
 const { spawn } = require('child_process');
@@ -46,6 +46,25 @@ function isEnabled() {
   return process.env.EKYBOT_CODEX_ENABLED !== 'false';
 }
 
+function resolveSessionId(agentId, explicitSessionId = null) {
+  if (explicitSessionId) return String(explicitSessionId).trim() || null;
+  if (!agentId) return null;
+
+  const raw = process.env.EKYBOT_CODEX_SESSION_MAP;
+  if (!raw) return null;
+
+  try {
+    const sessionMap = JSON.parse(raw);
+    const sessionId = sessionMap?.[agentId];
+    return typeof sessionId === 'string' && sessionId.trim()
+      ? sessionId.trim()
+      : null;
+  } catch (error) {
+    console.warn(chalk.yellow(`[codex] invalid EKYBOT_CODEX_SESSION_MAP: ${error.message}`));
+    return null;
+  }
+}
+
 /**
  * Execute a one-shot Codex prompt and return the response.
  *
@@ -53,12 +72,16 @@ function isEnabled() {
  * @param {object} options
  * @param {string} options.workingDir - Working directory for Codex
  * @param {number} options.timeoutMs - Timeout in milliseconds
+ * @param {string} options.agentId - Runtime id used to resolve a bound Codex session
+ * @param {string} options.sessionId - Explicit Codex session id to resume
  * @returns {Promise<{content: string, model: string, billingType: string, exitCode: number}>}
  */
 async function executeCodex(message, options = {}) {
   const {
     workingDir = resolveWorkingDir(),
     timeoutMs = resolveTimeoutMs(),
+    agentId = null,
+    sessionId: explicitSessionId = null,
   } = options;
 
   const maxOutput = resolveMaxOutput();
@@ -69,11 +92,12 @@ async function executeCodex(message, options = {}) {
 
   // Resolve ~ and ensure directory exists
   const resolvedDir = expandTilde(workingDir);
+  const sessionId = resolveSessionId(agentId, explicitSessionId);
   fs.mkdirSync(resolvedDir, { recursive: true });
 
   console.log(
     chalk.magenta(
-      `[codex] executing prompt in ${resolvedDir} (timeout=${Math.round(timeoutMs / 1000)}s)`
+      `[codex] executing prompt in ${resolvedDir} (timeout=${Math.round(timeoutMs / 1000)}s session=${sessionId || 'new'})`
     )
   );
 
@@ -82,16 +106,25 @@ async function executeCodex(message, options = {}) {
     // Current Codex CLI versions replaced the legacy --full-auto flag with
     // explicit sandbox and approval options.
     // -C: working directory
-    const args = [
-      '--ask-for-approval', 'never',
-      'exec',
-      // Project-bound channels may intentionally point at a directory that is
-      // not itself a Git checkout (for example a parent project workspace).
-      '--skip-git-repo-check',
-      '--sandbox', 'workspace-write',
-      '-C', resolvedDir,
-      message,
-    ];
+    const args = sessionId
+      ? [
+          '--ask-for-approval', 'never',
+          'exec',
+          'resume',
+          '--skip-git-repo-check',
+          sessionId,
+          message,
+        ]
+      : [
+          '--ask-for-approval', 'never',
+          'exec',
+          // Project-bound channels may intentionally point at a directory that is
+          // not itself a Git checkout (for example a parent project workspace).
+          '--skip-git-repo-check',
+          '--sandbox', 'workspace-write',
+          '-C', resolvedDir,
+          message,
+        ];
 
     // Enrich PATH for macOS LaunchAgent
     const enrichedEnv = { ...process.env };
@@ -148,7 +181,7 @@ async function executeCodex(message, options = {}) {
           resolve({
             content: response,
             model: 'openai/codex',
-            billingType: 'api',
+            billingType: 'subscription',
             exitCode: code,
           });
         } else {
@@ -163,7 +196,7 @@ async function executeCodex(message, options = {}) {
             resolve({
               content: '⏳ Rate limit atteint sur ton plan OpenAI. Réessaie dans quelques minutes.',
               model: 'openai/codex',
-              billingType: 'api',
+              billingType: 'subscription',
               exitCode: code,
             });
             return;
@@ -201,7 +234,7 @@ async function executeCodex(message, options = {}) {
             content: response.substring(0, maxOutput) +
               `\n\n[Timed out after ${Math.round(timeoutMs / 1000)}s]`,
             model: 'openai/codex',
-            billingType: 'api',
+            billingType: 'subscription',
             exitCode: -1,
           });
         } else {
@@ -292,4 +325,4 @@ function isCodexProvider(provider) {
   return provider === 'codex' || provider === 'codex-cli';
 }
 
-module.exports = { executeCodex, healthCheck, isCodexProvider };
+module.exports = { executeCodex, healthCheck, isCodexProvider, resolveSessionId };

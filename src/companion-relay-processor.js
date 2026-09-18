@@ -909,6 +909,7 @@ class EkybotCompanionRelayProcessor {
       );
       gatewayResult = await executeCodex(prompt, {
         workingDir: relayWorkingDir || undefined,
+        agentId: targetAgentId,
       });
     } else if (isHermes) {
       // Route to Hermes through the RuntimeAdapter. The adapter picks its
