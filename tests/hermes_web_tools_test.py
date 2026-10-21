@@ -10,6 +10,7 @@ import socket
 sys.path[:0] = [os.environ["EKYBOT_NATIVE_RUNTIME"], os.environ["EKYBOT_NATIVE_PACKAGES"], str(Path(__file__).resolve().parent.parent / "scripts")]
 import httpx
 from hermes_web_tools import WebTools, PageText, public_url, public_client
+from hermes_execution_policy import native_audit
 
 
 class WebTests(unittest.TestCase):
@@ -72,6 +73,20 @@ class WebTests(unittest.TestCase):
         result = web.request_site("https://example.com/private", "Read my dashboard")
         self.assertEqual(result["status"], "permission_required")
         self.assertEqual(result["origin"], "https://example.com")
+
+    def test_search_audit_allows_only_fixed_worker_and_discard_sink(self):
+        home = Path(self.directory.name)
+        runtime, packages = Path(os.environ["EKYBOT_NATIVE_RUNTIME"]), Path(os.environ["EKYBOT_NATIVE_PACKAGES"])
+        audit = native_audit(home, runtime, packages, web_enabled=True, offline=False)
+        audit('open', (os.devnull, 'r+', os.O_RDWR))
+        with self.assertRaises(PermissionError): audit('open', ('/tmp/arbitrary-write', 'w', os.O_WRONLY))
+        env = {"PATH": "/usr/bin:/bin", "LANG": "en_US.UTF-8", "HOME": str(home), "HERMES_HOME": str(home), "PYTHONPATH": os.pathsep.join([str(runtime), str(packages)])}
+        args = [sys.executable, '-B', '-S', str(runtime / 'plugins/web/ddgs/_search_worker.py')]
+        audit('subprocess.Popen', (sys.executable, args, None, env))
+        for bad in [dict(env, API_KEY='synthetic'), dict(env, HOME='/tmp/elsewhere')]:
+            with self.assertRaises(PermissionError): audit('subprocess.Popen', (sys.executable, args, None, bad))
+        with self.assertRaises(PermissionError): audit('subprocess.Popen', ('sh', ['sh', '-c', 'true'], None, env))
+        with self.assertRaises(PermissionError): native_audit(home,runtime,packages,web_enabled=True,offline=True)('subprocess.Popen', (sys.executable,args,None,env))
 
 
 if __name__ == "__main__": unittest.main()

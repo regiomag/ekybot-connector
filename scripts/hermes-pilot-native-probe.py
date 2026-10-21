@@ -67,33 +67,9 @@ def execute(request):
 
     # Defence in depth, not an OS sandbox: no user-home reads outside the new
     # profile or the explicitly selected dependency tree; no subprocesses.
-    user_home = Path.home().resolve()
-    allowed = (home, runtime, packages, Path(sys.base_prefix).resolve(), Path(__file__).resolve().parent)
-
-    def audit(event, args):
-        if event in ("subprocess.Popen", "os.system", "os.posix_spawn", "os.exec"):
-            # Only the installed fixed search worker, with an explicit minimal
-            # environment. Never a model-authored command or inherited secrets.
-            expected = [sys.executable, "-B", "-S", str(runtime / "plugins/web/ddgs/_search_worker.py")]
-            safe_env = {"PATH", "LANG", "HOME", "HERMES_HOME", "PYTHONPATH"}
-            if (not web_enabled or offline or event != "subprocess.Popen" or list(args[1]) != expected
-                    or not isinstance(args[3], dict) or set(args[3]) != safe_env
-                    or args[3]["HOME"] != str(home) or args[3]["HERMES_HOME"] != str(home)
-                    or args[3]["PYTHONPATH"] != os.pathsep.join([str(runtime), str(packages)])):
-                raise PermissionError("Native pilot cannot spawn this process")
-        if offline and event in ("socket.connect", "socket.getaddrinfo"):
-            raise PermissionError("Offline fixture cannot access network")
-        if event != "open" or not isinstance(args[0], (str, bytes)):
-            return
-        target = Path(os.fsdecode(args[0])).resolve()
-        mode, flags = args[1], args[2]
-        writing = (isinstance(mode, str) and any(c in mode for c in "wax+")) or bool(flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT))
-        if writing and not target.is_relative_to(home):
-            raise PermissionError("Native pilot write outside profile")
-        if target.is_relative_to(user_home) and not any(target.is_relative_to(p) for p in allowed):
-            raise PermissionError("Native pilot read outside profile")
-
-    sys.addaudithook(audit)
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from hermes_execution_policy import native_audit
+    sys.addaudithook(native_audit(home, runtime, packages, web_enabled=web_enabled, offline=offline))
     import httpx
     import anthropic
     import agent.anthropic_credentials as auth
