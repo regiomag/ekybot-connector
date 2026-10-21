@@ -320,3 +320,67 @@ test('durable step identity binds job, agent and step', () => {
   assert.notEqual(stepId(run, agent, 1), stepId(run, crypto.randomUUID(), 1));
   assert.match(stepId(run, agent, 1), broker.UUID);
 });
+test('a remotely revoked BMT key prevents shared context from reaching any model', async (t) => {
+  const stateDir = fixture(t),
+    pair = broker.keys(),
+    c = { ...connection, envelope: sealed(pair) },
+    id = crypto.randomUUID();
+  writeDurableJson(path.join(stateDir, 'enrollment-key.json'), pair);
+  let models = 0;
+  const calls = [];
+  const result = await runBmtTick({
+    stateDir,
+    machine: async ({ op, data }) => {
+      calls.push({ op, data });
+      if (op === 'pending') {return { connections: [] };}
+      if (op === 'action-claim') {return { action: null };}
+      if (op === 'claim')
+        {return {
+          job: { id, input: 'fixture' },
+          chat: { id: crypto.randomUUID(), bindings: [c.id] },
+          agents: [{ id: c.agent_id }],
+          connections: [c],
+        };}
+      if (op === 'access') {return c;}
+      return { ok: true };
+    },
+    fetchImpl: async () => new Response('{}', { status: 401 }),
+    openRuntime: async () => {
+      models++;
+      throw new Error('must not start');
+    },
+  });
+  assert.equal(models, 0);
+  assert.equal(result.status, 'delivery-or-reconciliation-required');
+  assert.equal(calls.at(-1).op, 'uncertain');
+});
+test('long BMT messages retain the full user input while bounding historical context', async () => {
+  const text = 'u'.repeat(8000);
+  let prompt;
+  await planAgent({
+    claim: {
+      job: { id: crypto.randomUUID(), input: text },
+      chat: { id: crypto.randomUUID() },
+      connections: [],
+      history: [{ text: 'h'.repeat(20000) }],
+      actions: [],
+      outputs: [],
+    },
+    agent: { id: crypto.randomUUID() },
+    stateDir: '/fixture',
+    api: async () => {},
+    pair: {},
+    openRuntime: async () => ({
+      close() {},
+      journal: {
+        acknowledge() {},
+        async run(job) {
+          prompt = job.text;
+          return { output: '{"type":"answer","text":"ok"}' };
+        },
+      },
+    }),
+  });
+  assert.ok(prompt.length <= 12000);
+  assert.ok(prompt.endsWith(text));
+});

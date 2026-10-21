@@ -272,6 +272,26 @@ async function runBmtTick({ stateDir, machineFile, machine: injected, openRuntim
     try {
       claim.outputs = [];
       for (const agent of claim.agents) {
+        // Revalidate this participant's own keys BEFORE exposing shared context
+        // to its native model. Cached enrollment scopes alone are insufficient
+        // when a key was revoked or narrowed directly in BMT.
+        for (const c of claim.connections.filter((c) => c.agent_id === agent.id)) {
+          const binding = await api('access', {
+            runId: claim.job.id,
+            agentId: agent.id,
+            connectionId: c.id,
+          });
+          const verified = await broker.verify(
+            broker.decrypt(binding.envelope, identity(binding), pair),
+            fetchImpl
+          );
+          if (
+            verified.projectId !== binding.project_id ||
+            binding.scopes.some((scope) => !verified.scopes.includes(scope))
+          ) {
+            throw new Error('BMT grant changed; reconnect explicitly');
+          }
+        }
         claim.outputs.push(
           await planAgent({ claim, agent, api, pair, stateDir, openRuntime, fetchImpl })
         );
