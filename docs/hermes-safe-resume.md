@@ -1,5 +1,23 @@
 # Continuité des nouvelles sessions Hermes
 
+## État opérationnel du pilote le 21 octobre 2026
+
+Le nouveau Hermes est actif en chat seul, sur un profil distinct, sans import d'ancien historique ou de mémoire. Trois messages réels ont été livrés via OpenAI `gpt-5.6-sol`, dont un par le service permanent. Les deux premiers prouvent la continuité de la même session native et le rappel du message précédent ; rejouer le reçu terminé ne déclenche aucun nouvel appel. Claude Opus 5.5 API reste le secours après refus explicite admissible, pas après timeout ou résultat incertain. Le secours est qualifié avec transport fictif ; son accès aux métadonnées est validé, mais aucune génération Claude réelle n'a été nécessaire.
+
+Le service utilisateur `com.ekybot.hermes-v2-pilot` relève la file toutes les 15 secondes. Il utilise `/Users/ekytec/.local/share/ekybot-v2/companion-7e946fa` et l'export propre `runtime-05f548f35dd3`, jamais un checkout temporaire. Le Mac doit rester allumé, connecté, avec une session utilisateur ouverte. Le daemon Companion historique n'a pas été reconfiguré.
+
+Les **185 tests** passent avec les trois paramètres natifs renseignés, sans test ignoré. Les outils métier, le streaming, la compression et le renouvellement autonome isolé de l'authentification OpenAI restent hors du périmètre qualifié. Le journal bloque toute reprise automatique d'un résultat incertain.
+
+Contrôle du service, sans exécution modèle :
+
+```sh
+launchctl print gui/$(id -u)/com.ekybot.hermes-v2-pilot
+```
+
+Le statut `not running` entre deux passages est normal ; vérifier le dernier code de sortie et le heartbeat serveur. Ne pas réinstaller le profil, effacer les verrous ni utiliser un redémarrage forcé pendant un travail actif. Les sections suivantes conservent les étapes de qualification historiques ; leurs mentions « inactif » ou « sans session » ne décrivent plus l'état actuel du lanceur dédié.
+
+## Historique de qualification
+
 Le pilote V2 démarre **sans aucun historique ni mémoire Hermes existants**, conformément à la décision du propriétaire du 21 octobre 2026. Il utilisera un profil isolé, une nouvelle conversation et une mémoire vide. Aucun import, résumé de transition ou recherche d’association avec les anciennes sessions n’est requis. L’ancien environnement reste intact et hors du routage V2.
 
 La direction visuelle BMT est validée. Le garde-fou décrit ici prépare la **continuité des futures sessions V2 après leur création**. Il est opt-in et non activé sur le Companion en service. Un provisionneur distinct prépare désormais le profil vide hors ligne ; il ne crée pas encore de session native et n’active aucun runtime.
