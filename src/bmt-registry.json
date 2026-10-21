@@ -1,0 +1,976 @@
+{
+  "source": "regiomag/bemytalent_tools",
+  "revision": "8c29ddda1c87634af072ba0857a5a459a6a69116",
+  "excluded": [
+    "intake: partner site credentials",
+    "meetings: Calenoo-specific credentials"
+  ],
+  "operations": [
+    {
+      "api": "accounting",
+      "action": "describe",
+      "method": "GET",
+      "scope": null,
+      "effect": "read"
+    },
+    {
+      "api": "accounting",
+      "action": "help",
+      "method": "GET",
+      "scope": "accounting:read",
+      "effect": "read"
+    },
+    {
+      "api": "accounting",
+      "action": "context",
+      "method": "GET",
+      "scope": "accounting:read",
+      "effect": "read"
+    },
+    {
+      "api": "accounting",
+      "action": "chart_of_accounts",
+      "method": "GET",
+      "scope": "accounting:read",
+      "effect": "read"
+    },
+    {
+      "api": "accounting",
+      "action": "entries",
+      "method": "GET",
+      "scope": "accounting:read",
+      "effect": "read"
+    },
+    {
+      "api": "accounting",
+      "action": "ledger",
+      "method": "GET",
+      "scope": "accounting:read",
+      "effect": "read"
+    },
+    {
+      "api": "accounting",
+      "action": "trial_balance",
+      "method": "GET",
+      "scope": "accounting:read",
+      "effect": "read"
+    },
+    {
+      "api": "accounting",
+      "action": "balance_sheet",
+      "method": "GET",
+      "scope": "accounting:read",
+      "effect": "read"
+    },
+    {
+      "api": "accounting",
+      "action": "income_statement",
+      "method": "GET",
+      "scope": "accounting:read",
+      "effect": "read"
+    },
+    {
+      "api": "accounting",
+      "action": "bank_transactions",
+      "method": "GET",
+      "scope": "accounting:read",
+      "effect": "read"
+    },
+    {
+      "api": "accounting",
+      "action": "anomalies",
+      "method": "GET",
+      "scope": "accounting:read",
+      "effect": "read"
+    },
+    {
+      "api": "accounting",
+      "action": "resolve",
+      "method": "GET",
+      "scope": "accounting:read",
+      "effect": "read"
+    },
+    {
+      "api": "accounting",
+      "action": "vat_status",
+      "method": "GET",
+      "scope": "accounting:read",
+      "effect": "read"
+    },
+    {
+      "api": "accounting",
+      "action": "vat_xml",
+      "method": "GET",
+      "scope": "accounting:read",
+      "effect": "read"
+    },
+    {
+      "api": "accounting",
+      "action": "vat_lines",
+      "method": "GET",
+      "scope": "accounting:read",
+      "effect": "read"
+    },
+    {
+      "api": "accounting",
+      "action": "vat_return",
+      "method": "GET",
+      "scope": "accounting:read",
+      "effect": "update"
+    },
+    {
+      "api": "accounting",
+      "action": "upsert_accounts",
+      "method": "POST",
+      "scope": "accounting:write",
+      "effect": "update"
+    },
+    {
+      "api": "accounting",
+      "action": "create_draft_entry",
+      "method": "POST",
+      "scope": "accounting:write",
+      "effect": "draft_create"
+    },
+    {
+      "api": "accounting",
+      "action": "propose_input_tax_recovery",
+      "method": "POST",
+      "scope": "accounting:write",
+      "effect": "draft_create"
+    },
+    {
+      "api": "accounting",
+      "action": "invoices",
+      "method": "GET",
+      "scope": "invoicing:read",
+      "effect": "read"
+    },
+    {
+      "api": "accounting",
+      "action": "invoicing_settings",
+      "method": "GET",
+      "scope": "invoicing:read",
+      "effect": "read"
+    },
+    {
+      "api": "accounting",
+      "action": "quotes",
+      "method": "GET",
+      "scope": "invoicing:read",
+      "effect": "read"
+    },
+    {
+      "api": "accounting",
+      "action": "create_offer",
+      "method": "POST",
+      "scope": "invoicing:write",
+      "effect": "draft_create"
+    },
+    {
+      "api": "accounting",
+      "action": "create_invoice",
+      "method": "POST",
+      "scope": "invoicing:write",
+      "effect": "draft_create"
+    },
+    {
+      "api": "accounting",
+      "action": "add_invoice_lines",
+      "method": "POST",
+      "scope": "invoicing:write",
+      "effect": "update"
+    },
+    {
+      "api": "accounting",
+      "action": "update_invoicing_settings",
+      "method": "POST",
+      "scope": "invoicing:write",
+      "effect": "update"
+    },
+    {
+      "api": "accounting",
+      "action": "set_invoice_logo",
+      "method": "POST",
+      "scope": "invoicing:write",
+      "effect": "update"
+    },
+    {
+      "api": "accounting",
+      "action": "payroll_settings",
+      "method": "GET",
+      "scope": "payroll:read",
+      "effect": "read"
+    },
+    {
+      "api": "accounting",
+      "action": "payroll_employees",
+      "method": "GET",
+      "scope": "payroll:read",
+      "effect": "read"
+    },
+    {
+      "api": "accounting",
+      "action": "payroll_slips",
+      "method": "GET",
+      "scope": "payroll:read",
+      "effect": "read"
+    },
+    {
+      "api": "accounting",
+      "action": "payroll_slip",
+      "method": "GET",
+      "scope": "payroll:read",
+      "effect": "read"
+    },
+    {
+      "api": "accounting",
+      "action": "payroll_annual",
+      "method": "GET",
+      "scope": "payroll:read",
+      "effect": "read"
+    },
+    {
+      "api": "accounting",
+      "action": "payroll_setup",
+      "method": "POST",
+      "scope": "payroll:write",
+      "effect": "update"
+    },
+    {
+      "api": "accounting",
+      "action": "update_payroll_settings",
+      "method": "POST",
+      "scope": "payroll:write",
+      "effect": "update"
+    },
+    {
+      "api": "accounting",
+      "action": "upsert_payroll_employee",
+      "method": "POST",
+      "scope": "payroll:write",
+      "effect": "update"
+    },
+    {
+      "api": "accounting",
+      "action": "set_payroll_timesheet",
+      "method": "POST",
+      "scope": "payroll:write",
+      "effect": "update"
+    },
+    {
+      "api": "accounting",
+      "action": "generate_payroll_slips",
+      "method": "POST",
+      "scope": "payroll:write",
+      "effect": "draft_create"
+    },
+    {
+      "api": "accounting",
+      "action": "delete_payroll_employee",
+      "method": "POST",
+      "scope": "payroll:write",
+      "effect": "delete"
+    },
+    {
+      "api": "accounting",
+      "action": "stock_items",
+      "method": "GET",
+      "scope": "stock:read",
+      "effect": "read"
+    },
+    {
+      "api": "accounting",
+      "action": "stock_locations",
+      "method": "GET",
+      "scope": "stock:read",
+      "effect": "read"
+    },
+    {
+      "api": "accounting",
+      "action": "stock_movements",
+      "method": "GET",
+      "scope": "stock:read",
+      "effect": "read"
+    },
+    {
+      "api": "accounting",
+      "action": "stock_opening_drafts",
+      "method": "GET",
+      "scope": "stock:read",
+      "effect": "read"
+    },
+    {
+      "api": "accounting",
+      "action": "create_stock_item",
+      "method": "POST",
+      "scope": "stock:write",
+      "effect": "update"
+    },
+    {
+      "api": "accounting",
+      "action": "create_stock_location",
+      "method": "POST",
+      "scope": "stock:write",
+      "effect": "update"
+    },
+    {
+      "api": "accounting",
+      "action": "update_stock_location",
+      "method": "POST",
+      "scope": "stock:write",
+      "effect": "update"
+    },
+    {
+      "api": "accounting",
+      "action": "create_stock_opening_balance",
+      "method": "POST",
+      "scope": "stock:write",
+      "effect": "update"
+    },
+    {
+      "api": "accounting",
+      "action": "create_stock_adjustment",
+      "method": "POST",
+      "scope": "stock:write",
+      "effect": "update"
+    },
+    {
+      "api": "accounting",
+      "action": "create_stock_transfer",
+      "method": "POST",
+      "scope": "stock:write",
+      "effect": "update"
+    },
+    {
+      "api": "accounting",
+      "action": "delete_stock_location",
+      "method": "POST",
+      "scope": "stock:write",
+      "effect": "delete"
+    },
+    {
+      "api": "accounting",
+      "action": "options",
+      "method": "GET",
+      "scope": "settings:read",
+      "effect": "read"
+    },
+    {
+      "api": "accounting",
+      "action": "set_option",
+      "method": "POST",
+      "scope": "settings:write",
+      "effect": "update"
+    },
+    {
+      "api": "accounting",
+      "action": "set_vat_settings",
+      "method": "POST",
+      "scope": "settings:write",
+      "effect": "update"
+    },
+    {
+      "api": "accounting",
+      "action": "retag_vat_lines",
+      "method": "POST",
+      "scope": "settings:write",
+      "effect": "update"
+    },
+    {
+      "api": "accounting",
+      "action": "set_vat_acquisition",
+      "method": "POST",
+      "scope": "settings:write",
+      "effect": "update"
+    },
+    {
+      "api": "accounting",
+      "action": "set_account_vat",
+      "method": "POST",
+      "scope": "settings:write",
+      "effect": "update"
+    },
+    {
+      "api": "planning",
+      "action": "describe",
+      "method": "GET",
+      "scope": "planning:read",
+      "effect": "read"
+    },
+    {
+      "api": "planning",
+      "action": "context",
+      "method": "GET",
+      "scope": "planning:read",
+      "effect": "read"
+    },
+    {
+      "api": "planning",
+      "action": "get_project",
+      "method": "GET",
+      "scope": "planning:read",
+      "effect": "read"
+    },
+    {
+      "api": "planning",
+      "action": "get_scenario",
+      "method": "GET",
+      "scope": "planning:read",
+      "effect": "read"
+    },
+    {
+      "api": "planning",
+      "action": "results",
+      "method": "GET",
+      "scope": "planning:read",
+      "effect": "read"
+    },
+    {
+      "api": "planning",
+      "action": "compare_scenarios",
+      "method": "GET",
+      "scope": "planning:read",
+      "effect": "read"
+    },
+    {
+      "api": "planning",
+      "action": "gaps",
+      "method": "GET",
+      "scope": "planning:read",
+      "effect": "read"
+    },
+    {
+      "api": "planning",
+      "action": "get_canvas",
+      "method": "GET",
+      "scope": "planning:read",
+      "effect": "read"
+    },
+    {
+      "api": "planning",
+      "action": "scenarios",
+      "method": "GET",
+      "scope": "planning:read",
+      "effect": "read"
+    },
+    {
+      "api": "planning",
+      "action": "plan",
+      "method": "GET",
+      "scope": "planning:read",
+      "effect": "read"
+    },
+    {
+      "api": "planning",
+      "action": "hypotheses",
+      "method": "GET",
+      "scope": "planning:read",
+      "effect": "read"
+    },
+    {
+      "api": "planning",
+      "action": "forecast",
+      "method": "GET",
+      "scope": "planning:read",
+      "effect": "read"
+    },
+    {
+      "api": "planning",
+      "action": "compare",
+      "method": "GET",
+      "scope": "planning:read",
+      "effect": "read"
+    },
+    {
+      "api": "planning",
+      "action": "set_project_params",
+      "method": "POST",
+      "scope": "planning:write",
+      "effect": "update"
+    },
+    {
+      "api": "planning",
+      "action": "upsert_offer",
+      "method": "POST",
+      "scope": "planning:write",
+      "effect": "update"
+    },
+    {
+      "api": "planning",
+      "action": "upsert_cost",
+      "method": "POST",
+      "scope": "planning:write",
+      "effect": "update"
+    },
+    {
+      "api": "planning",
+      "action": "upsert_salary",
+      "method": "POST",
+      "scope": "planning:write",
+      "effect": "update"
+    },
+    {
+      "api": "planning",
+      "action": "upsert_channel",
+      "method": "POST",
+      "scope": "planning:write",
+      "effect": "update"
+    },
+    {
+      "api": "planning",
+      "action": "upsert_investment",
+      "method": "POST",
+      "scope": "planning:write",
+      "effect": "update"
+    },
+    {
+      "api": "planning",
+      "action": "upsert_leasing",
+      "method": "POST",
+      "scope": "planning:write",
+      "effect": "update"
+    },
+    {
+      "api": "planning",
+      "action": "upsert_loan",
+      "method": "POST",
+      "scope": "planning:write",
+      "effect": "update"
+    },
+    {
+      "api": "planning",
+      "action": "set_forecast",
+      "method": "POST",
+      "scope": "planning:write",
+      "effect": "update"
+    },
+    {
+      "api": "planning",
+      "action": "regenerate_forecast",
+      "method": "POST",
+      "scope": "planning:write",
+      "effect": "update"
+    },
+    {
+      "api": "planning",
+      "action": "bulk_import",
+      "method": "POST",
+      "scope": "planning:write",
+      "effect": "update"
+    },
+    {
+      "api": "planning",
+      "action": "create_scenario",
+      "method": "POST",
+      "scope": "planning:write",
+      "effect": "update"
+    },
+    {
+      "api": "planning",
+      "action": "clone_scenario",
+      "method": "POST",
+      "scope": "planning:write",
+      "effect": "update"
+    },
+    {
+      "api": "planning",
+      "action": "upsert_canvas_item",
+      "method": "POST",
+      "scope": "planning:write",
+      "effect": "update"
+    },
+    {
+      "api": "planning",
+      "action": "upsert_canvas_hypothesis",
+      "method": "POST",
+      "scope": "planning:write",
+      "effect": "update"
+    },
+    {
+      "api": "planning",
+      "action": "delete_scenario",
+      "method": "POST",
+      "scope": "planning:write",
+      "effect": "delete"
+    },
+    {
+      "api": "planning",
+      "action": "delete_item",
+      "method": "POST",
+      "scope": "planning:write",
+      "effect": "delete"
+    },
+    {
+      "api": "planning",
+      "action": "delete_canvas_item",
+      "method": "POST",
+      "scope": "planning:write",
+      "effect": "delete"
+    },
+    {
+      "api": "planning",
+      "action": "delete_canvas_hypothesis",
+      "method": "POST",
+      "scope": "planning:write",
+      "effect": "delete"
+    },
+    {
+      "api": "mandates",
+      "action": "describe",
+      "method": "GET",
+      "scope": "mandates:read",
+      "effect": "read"
+    },
+    {
+      "api": "mandates",
+      "action": "mandates",
+      "method": "GET",
+      "scope": "mandates:read",
+      "effect": "read"
+    },
+    {
+      "api": "mandates",
+      "action": "mandate",
+      "method": "GET",
+      "scope": "mandates:read",
+      "effect": "read"
+    },
+    {
+      "api": "mandates",
+      "action": "time_entries",
+      "method": "GET",
+      "scope": "mandates:read",
+      "effect": "read"
+    },
+    {
+      "api": "mandates",
+      "action": "portfolio_summary",
+      "method": "GET",
+      "scope": "mandates:read",
+      "effect": "read"
+    },
+    {
+      "api": "mandates",
+      "action": "parcours_list",
+      "method": "GET",
+      "scope": "mandates:read",
+      "effect": "read"
+    },
+    {
+      "api": "mandates",
+      "action": "dossier_get",
+      "method": "GET",
+      "scope": "mandates:read",
+      "effect": "read"
+    },
+    {
+      "api": "mandates",
+      "action": "dossiers_due",
+      "method": "GET",
+      "scope": "mandates:read",
+      "effect": "read"
+    },
+    {
+      "api": "mandates",
+      "action": "update_mandate",
+      "method": "POST",
+      "scope": "mandates:write",
+      "effect": "update"
+    },
+    {
+      "api": "mandates",
+      "action": "create_time_entry",
+      "method": "POST",
+      "scope": "mandates:write",
+      "effect": "update"
+    },
+    {
+      "api": "mandates",
+      "action": "update_time_entry",
+      "method": "POST",
+      "scope": "mandates:write",
+      "effect": "update"
+    },
+    {
+      "api": "mandates",
+      "action": "delete_time_entry",
+      "method": "POST",
+      "scope": "mandates:write",
+      "effect": "delete"
+    },
+    {
+      "api": "crm",
+      "action": "describe",
+      "method": "GET",
+      "scope": null,
+      "effect": "read"
+    },
+    {
+      "api": "crm",
+      "action": "contacts",
+      "method": "GET",
+      "scope": "crm:read",
+      "effect": "read"
+    },
+    {
+      "api": "crm",
+      "action": "companies",
+      "method": "GET",
+      "scope": "crm:read",
+      "effect": "read"
+    },
+    {
+      "api": "crm",
+      "action": "leads",
+      "method": "GET",
+      "scope": "crm:read",
+      "effect": "read"
+    },
+    {
+      "api": "crm",
+      "action": "deals",
+      "method": "GET",
+      "scope": "crm:read",
+      "effect": "read"
+    },
+    {
+      "api": "crm",
+      "action": "tasks",
+      "method": "GET",
+      "scope": "crm:read",
+      "effect": "read"
+    },
+    {
+      "api": "crm",
+      "action": "contacts",
+      "method": "POST",
+      "scope": "crm:write",
+      "effect": "update"
+    },
+    {
+      "api": "crm",
+      "action": "companies",
+      "method": "POST",
+      "scope": "crm:write",
+      "effect": "update"
+    },
+    {
+      "api": "crm",
+      "action": "leads",
+      "method": "POST",
+      "scope": "crm:write",
+      "effect": "update"
+    },
+    {
+      "api": "crm",
+      "action": "deals",
+      "method": "POST",
+      "scope": "crm:write",
+      "effect": "update"
+    },
+    {
+      "api": "crm",
+      "action": "tasks",
+      "method": "POST",
+      "scope": "crm:write",
+      "effect": "update"
+    },
+    {
+      "api": "crm",
+      "action": "contacts",
+      "method": "PUT",
+      "scope": "crm:write",
+      "effect": "update"
+    },
+    {
+      "api": "crm",
+      "action": "companies",
+      "method": "PUT",
+      "scope": "crm:write",
+      "effect": "update"
+    },
+    {
+      "api": "crm",
+      "action": "leads",
+      "method": "PUT",
+      "scope": "crm:write",
+      "effect": "update"
+    },
+    {
+      "api": "crm",
+      "action": "deals",
+      "method": "PUT",
+      "scope": "crm:write",
+      "effect": "update"
+    },
+    {
+      "api": "crm",
+      "action": "tasks",
+      "method": "PUT",
+      "scope": "crm:write",
+      "effect": "update"
+    },
+    {
+      "api": "crm",
+      "action": "contacts",
+      "method": "PATCH",
+      "scope": "crm:write",
+      "effect": "update"
+    },
+    {
+      "api": "crm",
+      "action": "companies",
+      "method": "PATCH",
+      "scope": "crm:write",
+      "effect": "update"
+    },
+    {
+      "api": "crm",
+      "action": "leads",
+      "method": "PATCH",
+      "scope": "crm:write",
+      "effect": "update"
+    },
+    {
+      "api": "crm",
+      "action": "deals",
+      "method": "PATCH",
+      "scope": "crm:write",
+      "effect": "update"
+    },
+    {
+      "api": "crm",
+      "action": "tasks",
+      "method": "PATCH",
+      "scope": "crm:write",
+      "effect": "update"
+    },
+    {
+      "api": "crm",
+      "action": "contacts",
+      "method": "DELETE",
+      "scope": "crm:write",
+      "effect": "delete"
+    },
+    {
+      "api": "crm",
+      "action": "companies",
+      "method": "DELETE",
+      "scope": "crm:write",
+      "effect": "delete"
+    },
+    {
+      "api": "crm",
+      "action": "leads",
+      "method": "DELETE",
+      "scope": "crm:write",
+      "effect": "delete"
+    },
+    {
+      "api": "crm",
+      "action": "deals",
+      "method": "DELETE",
+      "scope": "crm:write",
+      "effect": "delete"
+    },
+    {
+      "api": "crm",
+      "action": "tasks",
+      "method": "DELETE",
+      "scope": "crm:write",
+      "effect": "delete"
+    },
+    {
+      "api": "crm",
+      "action": "message_templates",
+      "method": "GET",
+      "scope": "messaging:read",
+      "effect": "read"
+    },
+    {
+      "api": "crm",
+      "action": "message_drafts",
+      "method": "GET",
+      "scope": "messaging:read",
+      "effect": "read"
+    },
+    {
+      "api": "crm",
+      "action": "message_templates",
+      "method": "POST",
+      "scope": "messaging:write",
+      "effect": "update"
+    },
+    {
+      "api": "crm",
+      "action": "message_drafts",
+      "method": "POST",
+      "scope": "messaging:write",
+      "effect": "update"
+    },
+    {
+      "api": "crm",
+      "action": "message_templates",
+      "method": "PUT",
+      "scope": "messaging:write",
+      "effect": "update"
+    },
+    {
+      "api": "crm",
+      "action": "message_drafts",
+      "method": "PUT",
+      "scope": "messaging:write",
+      "effect": "update"
+    },
+    {
+      "api": "crm",
+      "action": "message_templates",
+      "method": "PATCH",
+      "scope": "messaging:write",
+      "effect": "update"
+    },
+    {
+      "api": "crm",
+      "action": "message_drafts",
+      "method": "PATCH",
+      "scope": "messaging:write",
+      "effect": "update"
+    },
+    {
+      "api": "crm",
+      "action": "message_templates",
+      "method": "DELETE",
+      "scope": "messaging:write",
+      "effect": "delete"
+    },
+    {
+      "api": "crm",
+      "action": "message_drafts",
+      "method": "DELETE",
+      "scope": "messaging:write",
+      "effect": "delete"
+    },
+    {
+      "api": "crm",
+      "action": "pipeline_stages",
+      "method": "GET",
+      "scope": "crm:read",
+      "effect": "read"
+    },
+    {
+      "api": "crm",
+      "action": "conversations",
+      "method": "GET",
+      "scope": "messaging:read",
+      "effect": "read"
+    },
+    {
+      "api": "crm",
+      "action": "conversations/messages",
+      "method": "GET",
+      "scope": "messaging:read",
+      "effect": "read"
+    }
+  ]
+}

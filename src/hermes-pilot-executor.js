@@ -260,4 +260,6 @@ module.exports = {
   createPilotJournal,
   runtimeFingerprint,
   enablePilotWeb,
+  invokeNative,
+  readOpenAICredential,
 };

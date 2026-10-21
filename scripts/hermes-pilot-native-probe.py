@@ -19,12 +19,15 @@ def execute(request):
     packages = Path(request["packages"]).resolve(strict=True)
     offline = request.get("offline") is True
     web_enabled = request.get("webEnabled") is True
+    bmt_enabled = request.get("bmtEnabled") is True
     if web_enabled and not offline:
         policy = json.loads((home / "web-policy.json").read_text())
         if policy != {"version": 1, "enabled": True, "maxRequests": 8}:
             raise PermissionError("Explicit Web activation required")
     if not offline:
         activation = json.loads((home / ".ekybot-pilot-active.json").read_text())
+        if bmt_enabled and (activation.get("mode") != "bmt-protocol-v1" or web_enabled):
+            raise PermissionError("Explicit isolated BMT activation required")
         if (activation.get("executionAllowed") is not True
                 or activation.get("channelId") != request.get("channelId")
                 or activation.get("runtime") != str(runtime)
@@ -271,7 +274,7 @@ def execute(request):
         model=model, provider=provider, requested_provider=provider,
         api_key=credential["apiKey"], base_url=base_url,
         enabled_toolsets=["ekybot_web"] if web_enabled else [], disabled_toolsets=[] if web_enabled else ["all"], max_iterations=6 if web_enabled else 1,
-        max_tokens=2048 if web_enabled else 512, reasoning_config={"enabled": False}, quiet_mode=True,
+        max_tokens=2048 if web_enabled or bmt_enabled else 512, reasoning_config={"enabled": False}, quiet_mode=True,
         save_trajectories=False, verbose_logging=False, session_db=db,
         session_id=session_id, platform="cli", skip_context_files=True,
         load_soul_identity=True, skip_background_review=True, checkpoints_enabled=False,
