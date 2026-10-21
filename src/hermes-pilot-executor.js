@@ -23,10 +23,17 @@ const CORE = [
   'agent/codex_runtime.py',
   'hermes_cli/auth.py',
 ];
+const WEB_CORE = [
+  'tools/url_safety.py',
+  'tools/registry.py',
+  'tools/tool_search.py',
+  'plugins/web/ddgs/_search_worker.py',
+  'plugins/web/ddgs/provider.py',
+];
 const hash = (value) => crypto.createHash('sha256').update(value).digest('hex');
 const fail = () => new Error('Pilot activation or native execution could not be verified.');
 
-function runtimeFingerprint(runtime) {
+function runtimeFingerprint(runtime, files = CORE) {
   assertNoSymlinkChain(runtime);
   // Never execute the mutable legacy checkout or inherit its dotenv file.
   if (
@@ -37,11 +44,13 @@ function runtimeFingerprint(runtime) {
     throw fail();
   }
   return hash(
-    CORE.map((name) => {
-      const file = path.join(runtime, name);
-      assertNoSymlinkChain(file);
-      return `${name}:${hash(fs.readFileSync(file))}`;
-    }).join('\n')
+    files
+      .map((name) => {
+        const file = path.join(runtime, name);
+        assertNoSymlinkChain(file);
+        return `${name}:${hash(fs.readFileSync(file))}`;
+      })
+      .join('\n')
   );
 }
 
@@ -81,6 +90,8 @@ function readActivation(options = {}) {
     active.executionAllowed !== true ||
     !UUID.test(active.channelId) ||
     active.fingerprint !== runtimeFingerprint(active.runtime) ||
+    (active.webFingerprint &&
+      active.webFingerprint !== runtimeFingerprint(active.runtime, WEB_CORE)) ||
     active.configHash !== hash(JSON.stringify(readPrivateJson(path.join(plan.home, 'config.yaml'))))
   ) {
     throw fail();
@@ -107,6 +118,17 @@ function readOpenAICredential(home) {
 }
 
 function invokeNative({ plan, active, job, credential, fallbackCredential }) {
+  const webFile = path.join(plan.home, 'web-policy.json');
+  const webPolicy = fs.existsSync(webFile) ? readPrivateJson(webFile) : null;
+  if (
+    webPolicy &&
+    (!active.webFingerprint ||
+      webPolicy.version !== 1 ||
+      webPolicy.enabled !== true ||
+      webPolicy.maxRequests !== 8)
+  ) {
+    throw fail();
+  }
   return new Promise((resolve, reject) => {
     const child = spawn(
       active.python,
@@ -119,10 +141,13 @@ function invokeNative({ plan, active, job, credential, fallbackCredential }) {
     );
     let output = '';
     let failed = false;
-    const timer = setTimeout(() => {
-      failed = true;
-      child.kill('SIGKILL');
-    }, 120000);
+    const timer = setTimeout(
+      () => {
+        failed = true;
+        child.kill('SIGKILL');
+      },
+      webPolicy ? 210000 : 120000
+    );
     child.on('error', () => {
       clearTimeout(timer);
       reject(fail());
@@ -143,7 +168,12 @@ function invokeNative({ plan, active, job, credential, fallbackCredential }) {
       }
       try {
         const result = JSON.parse(output);
-        if (result.offline !== false || ![1, 2].includes(result.modelRequests)) {
+        if (
+          result.offline !== false ||
+          !Number.isInteger(result.modelRequests) ||
+          result.modelRequests < 1 ||
+          result.modelRequests > (webPolicy ? 8 : 2)
+        ) {
           throw fail();
         }
         resolve(result);
@@ -159,6 +189,7 @@ function invokeNative({ plan, active, job, credential, fallbackCredential }) {
         offline: false,
         provider: 'openai-codex',
         allowFallback: true,
+        webEnabled: !!webPolicy,
         credential,
         fallbackCredential,
         ...job,
@@ -196,4 +227,37 @@ function createPilotJournal(options = {}) {
   });
 }
 
-module.exports = { activatePilot, readActivation, createPilotJournal, runtimeFingerprint };
+function enablePilotWeb(options = {}) {
+  const { plan, active } = readActivation(options);
+  const configFile = path.join(plan.home, 'config.yaml');
+  const config = readPrivateJson(configFile);
+  const webFingerprint = runtimeFingerprint(active.runtime, WEB_CORE);
+  const backup = path.join(plan.home, '.web-enablement-backup.json');
+  if (
+    fs.existsSync(backup) ||
+    fs.existsSync(path.join(plan.home, 'pilot-journal', 'conversation.lock'))
+  ) {
+    throw fail();
+  }
+  writeDurableJson(backup, { active, config });
+  config.tools = { ...(config.tools || {}), tool_search: { enabled: 'off' } };
+  writeDurableJson(configFile, config);
+  writeDurableJson(path.join(plan.home, ACTIVE_FILE), {
+    ...active,
+    webFingerprint,
+    configHash: hash(JSON.stringify(config)),
+  });
+  writeDurableJson(path.join(plan.home, 'web-policy.json'), {
+    version: 1,
+    enabled: true,
+    maxRequests: 8,
+  });
+  return { enabled: true, oldContextImported: false, memoryReset: false };
+}
+module.exports = {
+  activatePilot,
+  readActivation,
+  createPilotJournal,
+  runtimeFingerprint,
+  enablePilotWeb,
+};

@@ -1,4 +1,4 @@
-"""Bounded chat-only Hermes executor, also exercised with offline transports.
+"""Bounded Hermes executor, also exercised with offline transports.
 
 The dedicated executor uses AIAgent + SessionDB, not CLI startup/discovery.
 The legacy Hermes installation and its routing are never modified.
@@ -18,6 +18,11 @@ def execute(request):
     runtime = Path(request["runtime"]).resolve(strict=True)
     packages = Path(request["packages"]).resolve(strict=True)
     offline = request.get("offline") is True
+    web_enabled = request.get("webEnabled") is True
+    if web_enabled and not offline:
+        policy = json.loads((home / "web-policy.json").read_text())
+        if policy != {"version": 1, "enabled": True, "maxRequests": 8}:
+            raise PermissionError("Explicit Web activation required")
     if not offline:
         activation = json.loads((home / ".ekybot-pilot-active.json").read_text())
         if (activation.get("executionAllowed") is not True
@@ -57,15 +62,25 @@ def execute(request):
             or config.get("fallback_providers") != [] or config.get("toolsets") != []
             or config.get("mcp_servers") != {}):
         raise ValueError("Missing bounded-execution configuration")
+    if web_enabled and config.get("tools", {}).get("tool_search", {}).get("enabled") != "off":
+        raise ValueError("Exact Web schemas required; dynamic tool discovery is disabled")
 
     # Defence in depth, not an OS sandbox: no user-home reads outside the new
     # profile or the explicitly selected dependency tree; no subprocesses.
     user_home = Path.home().resolve()
-    allowed = (home, runtime, packages, Path(sys.base_prefix).resolve())
+    allowed = (home, runtime, packages, Path(sys.base_prefix).resolve(), Path(__file__).resolve().parent)
 
     def audit(event, args):
         if event in ("subprocess.Popen", "os.system", "os.posix_spawn", "os.exec"):
-            raise PermissionError("Native pilot cannot spawn tools")
+            # Only the installed fixed search worker, with an explicit minimal
+            # environment. Never a model-authored command or inherited secrets.
+            expected = [sys.executable, "-B", "-S", str(runtime / "plugins/web/ddgs/_search_worker.py")]
+            safe_env = {"PATH", "LANG", "HOME", "HERMES_HOME", "PYTHONPATH"}
+            if (not web_enabled or offline or event != "subprocess.Popen" or list(args[1]) != expected
+                    or not isinstance(args[3], dict) or set(args[3]) != safe_env
+                    or args[3]["HOME"] != str(home) or args[3]["HERMES_HOME"] != str(home)
+                    or args[3]["PYTHONPATH"] != os.pathsep.join([str(runtime), str(packages)])):
+                raise PermissionError("Native pilot cannot spawn this process")
         if offline and event in ("socket.connect", "socket.getaddrinfo"):
             raise PermissionError("Offline fixture cannot access network")
         if event != "open" or not isinstance(args[0], (str, bytes)):
@@ -92,6 +107,8 @@ def execute(request):
     transport_errors = []
     attempts = []
     fallback_activated = False
+    request_hashes = set()
+    tool_names = {"ekybot_web_read", "ekybot_web_search", "ekybot_request_site_access"} if web_enabled else set()
 
     def save_attempts():
         if offline:
@@ -131,10 +148,15 @@ def execute(request):
         body = json.loads(http_request.content)
         expected = "gpt-5.6-sol" if target == "openai-codex" else "claude-opus-5-5"
         limit = body.get("max_output_tokens", 512) if target == "openai-codex" else body.get("max_tokens", 999999)
-        if (body.get("model") != expected or body.get("tools") or limit > 1024
-                or any(a["provider"] == target for a in attempts)
+        names = {t.get("name") or t.get("function", {}).get("name") for t in body.get("tools", [])}
+        import hashlib
+        fingerprint = hashlib.sha256(http_request.content).hexdigest()
+        if (body.get("model") != expected or names != tool_names or limit > (2048 if web_enabled else 1024)
+                or fingerprint in request_hashes or len(attempts) >= (8 if web_enabled else 2)
+                or (not web_enabled and any(a["provider"] == target for a in attempts))
                 or (target != provider and not fallback_activated)):
             raise PermissionError("Unexpected native model call or retry")
+        request_hashes.add(fingerprint)
         attempts.append({"provider": target, "status": "started"})
         save_attempts()  # Durable before handing a prompt to the network.
         calls.append(body)
@@ -145,11 +167,15 @@ def execute(request):
 
     def fixture_response(http_request):
         body = json.loads(http_request.content)
+        fixture_tool = web_enabled and len(calls) == 1 and not request.get("fixturePrimaryStatus")
         if http_request.url.host == "chatgpt.com":
             if request.get("fixturePrimaryStatus"):
                 return httpx.Response(request["fixturePrimaryStatus"], json={"error": {"message": "fixture refusal", "type": "permission_error"}})
             item = {"id": "msg_fixture", "type": "message", "role": "assistant", "status": "completed",
                     "content": [{"type": "output_text", "text": "OFFLINE_NATIVE_OK", "annotations": []}]}
+            if fixture_tool:
+                item = {"id": "fc_fixture", "type": "function_call", "call_id": "call_fixture", "status": "completed",
+                        "name": "ekybot_web_read", "arguments": '{"url":"https://example.com"}'}
             response = {"id": "resp_fixture", "object": "response", "created_at": 1, "status": "completed",
                         "model": model, "output": [item], "error": None, "incomplete_details": None,
                         "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2}}
@@ -160,6 +186,11 @@ def execute(request):
                 {"type": "response.output_item.done", "output_index": 0, "item": item},
                 {"type": "response.completed", "response": response},
             ]
+            if fixture_tool:
+                events = [{"type": "response.created", "response": {**response, "status": "in_progress", "output": []}},
+                          {"type": "response.output_item.added", "output_index": 0, "item": item},
+                          {"type": "response.output_item.done", "output_index": 0, "item": item},
+                          {"type": "response.completed", "response": response}]
             content = "".join(f"event: {event['type']}\ndata: {json.dumps({**event, 'sequence_number': index})}\n\n" for index, event in enumerate(events))
             return httpx.Response(200, text=content, headers={"Content-Type": "text/event-stream"})
         message = {
@@ -168,6 +199,9 @@ def execute(request):
             "stop_reason": "end_turn", "stop_sequence": None,
             "usage": {"input_tokens": 1, "output_tokens": 1},
         }
+        if fixture_tool:
+            message["content"] = [{"type": "tool_use", "id": "call_fixture", "name": "ekybot_web_read", "input": {"url": "https://example.com"}}]
+            message["stop_reason"] = "tool_use"
         if not body.get("stream"):
             return httpx.Response(200, json=message)
         # The native adapter uses Messages streaming. A plain JSON response
@@ -180,6 +214,15 @@ def execute(request):
             {"type": "message_delta", "delta": {"stop_reason": "end_turn", "stop_sequence": None}, "usage": {"output_tokens": 1}},
             {"type": "message_stop"},
         ]
+        if fixture_tool:
+            events = [
+                {"type": "message_start", "message": {**message, "content": [], "stop_reason": None}},
+                {"type": "content_block_start", "index": 0, "content_block": {"type": "tool_use", "id": "call_fixture", "name": "ekybot_web_read", "input": {}}},
+                {"type": "content_block_delta", "index": 0, "delta": {"type": "input_json_delta", "partial_json": '{"url":"https://example.com"}'}},
+                {"type": "content_block_stop", "index": 0},
+                {"type": "message_delta", "delta": {"stop_reason": "tool_use", "stop_sequence": None}, "usage": {"output_tokens": 1}},
+                {"type": "message_stop"},
+            ]
         content = "".join(f"event: {event['type']}\ndata: {json.dumps(event)}\n\n" for event in events)
         return httpx.Response(200, text=content, headers={"Content-Type": "text/event-stream"})
 
@@ -197,6 +240,25 @@ def execute(request):
     auth.build_anthropic_client = api_client
     from hermes_state import SessionDB
     from run_agent import AIAgent
+    if web_enabled:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from hermes_web_tools import WebTools, register_web_tools
+        web_records = []
+        def record_web(fn, success):
+            web_records.append({"tool": fn._ekybot_tool_name, "success": success})
+            if offline: return
+            destination = home / "pilot-journal" / (request["jobId"] + ".web.json")
+            temporary = destination.with_suffix(".tmp")
+            with open(temporary, "w") as stream:
+                json.dump(web_records, stream)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, destination)
+        web = WebTools(home, runtime, packages, record=record_web)
+        if offline:
+            web.read = lambda url: {"url": url, "content": "OFFLINE_WEB_PAGE", "authentication": "none"}
+            web.search_override = lambda query: {"results": []}
+        register_web_tools(web)
     if provider == "openai-codex":
         import openai
 
@@ -232,30 +294,34 @@ def execute(request):
     agent = AIAgent(
         model=model, provider=provider, requested_provider=provider,
         api_key=credential["apiKey"], base_url=base_url,
-        enabled_toolsets=[], disabled_toolsets=["all"], max_iterations=1,
-        max_tokens=512, reasoning_config={"enabled": False}, quiet_mode=True,
+        enabled_toolsets=["ekybot_web"] if web_enabled else [], disabled_toolsets=[] if web_enabled else ["all"], max_iterations=6 if web_enabled else 1,
+        max_tokens=2048 if web_enabled else 512, reasoning_config={"enabled": False}, quiet_mode=True,
         save_trajectories=False, verbose_logging=False, session_db=db,
         session_id=session_id, platform="cli", skip_context_files=True,
         load_soul_identity=True, skip_background_review=True, checkpoints_enabled=False,
         fallback_model={"provider": "anthropic", "model": "claude-opus-5-5",
                         "base_url": "https://api.anthropic.com", "api_key": fallback_credential["apiKey"]}
                         if provider == "openai-codex" and request.get("allowFallback") is True else None,
-        run_budget_seconds=90,
+        run_budget_seconds=180 if web_enabled else 90,
     )
-    if agent.tools:
+    actual_names = {t.get("name") or t.get("function", {}).get("name") for t in agent.tools}
+    if actual_names != tool_names:
+        if offline:
+            print(json.dumps({"fixtureToolNames": sorted(actual_names), "expected": sorted(tool_names)}), file=sys.__stdout__)
         raise ValueError("Unexpected tools enabled")
     try:
         result = agent.run_conversation(request["input"], conversation_history=history)
     finally:
         agent.close()
     output = result.get("final_response")
-    if result.get("failed") or result.get("partial") or not isinstance(output, str) or not output.strip() or len(calls) != (2 if fallback_activated else 1):
+    if result.get("failed") or result.get("partial") or not isinstance(output, str) or not output.strip() or (not web_enabled and len(calls) != (2 if fallback_activated else 1)):
         if offline:
             print(json.dumps({"fixtureResult": result, "calls": len(calls), "transportErrors": transport_errors}), file=sys.__stdout__)
         raise ValueError("Unverified native completion")
     attempts[-1]["status"] = "completed"
     save_attempts()
     return {"sessionId": agent.session_id, "output": output, "modelRequests": len(calls), "offline": offline,
+            "webTools": web_records if web_enabled else [],
             "provider": agent.provider, "fallbackUsed": fallback_activated,
             "inputMessageCount": len(calls[0].get("input" if provider == "openai-codex" else "messages", []))}
 

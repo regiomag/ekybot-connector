@@ -16,6 +16,13 @@ async function runMachineTick(options = {}) {
     throw new Error('Invalid scoped machine configuration');
   }
   const machine = createMachineClient(config);
-  return pilotTick({ journal: createPilotJournal(options), machine });
+  const heartbeat = setInterval(() => {
+    void machine({ action: 'heartbeat' }).catch(() => {});
+  }, 30000);
+  try {
+    return await pilotTick({ journal: createPilotJournal(options), machine });
+  } finally {
+    clearInterval(heartbeat);
+  }
 }
 module.exports = { runMachineTick };

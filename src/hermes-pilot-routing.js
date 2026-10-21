@@ -60,6 +60,8 @@ function buildPilotExecutionConfig(options = {}) {
   config.agent.api_max_retries = 1;
   config.compression = { enabled: false };
   config.auxiliary = { title_generation: { enabled: false } };
+  // Keep the exact qualified schemas visible; no dynamic tool discovery bridge.
+  config.tools = { tool_search: { enabled: 'off' } };
   return config;
 }
 module.exports.buildPilotExecutionConfig = buildPilotExecutionConfig;

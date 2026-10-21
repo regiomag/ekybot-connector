@@ -14,12 +14,14 @@ const {
 for (const scenario of [
   { provider: 'anthropic' },
   { provider: 'openai-codex' },
+  { provider: 'anthropic', webEnabled: true },
+  { provider: 'openai-codex', webEnabled: true },
   { provider: 'openai-codex', fixturePrimaryStatus: 401, allowFallback: true },
   { provider: 'openai-codex', fixturePrimaryStatus: 500, allowFallback: true },
 ]) {
   const { provider, fixturePrimaryStatus } = scenario;
   test(
-    `real native Hermes ${provider} ${fixturePrimaryStatus || 'success'} persists safely without network or inherited context`,
+    `real native Hermes ${provider} ${scenario.webEnabled ? 'web' : ''} ${fixturePrimaryStatus || 'success'} persists safely without network or inherited context`,
     {
       skip:
         !process.env.EKYBOT_NATIVE_RUNTIME ||
@@ -72,13 +74,22 @@ for (const scenario of [
         assert.equal(child.status, 0, child.stdout || 'Native fixture did not complete');
         const result = JSON.parse(child.stdout);
         assert.equal(result.output, 'OFFLINE_NATIVE_OK');
-        assert.equal(result.modelRequests, fixturePrimaryStatus === 401 ? 2 : 1);
+        assert.equal(
+          result.modelRequests,
+          fixturePrimaryStatus === 401 || scenario.webEnabled ? 2 : 1
+        );
         assert.equal(result.offline, true);
         assert.equal(result.provider, fixturePrimaryStatus === 401 ? 'anthropic' : provider);
+        assert.deepEqual(
+          result.webTools,
+          scenario.webEnabled ? [{ tool: 'ekybot_web_read', success: true }] : []
+        );
         return result;
       };
       const first = run(null);
-      if (!first) {return;}
+      if (!first) {
+        return;
+      }
       const before = await inspectHermesSession({
         profile: plan.profile,
         homeRoot: plan.root,

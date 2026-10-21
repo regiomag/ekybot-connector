@@ -9,6 +9,7 @@ const {
   activatePilot,
   readActivation,
   createPilotJournal,
+  enablePilotWeb,
 } = require('../src/hermes-pilot-executor');
 
 test('activation is explicit, private, pinned and cannot reset history', (t) => {
@@ -39,6 +40,11 @@ test('activation is explicit, private, pinned and cannot reset history', (t) => 
     'agent/anthropic_credentials.py',
     'agent/codex_runtime.py',
     'hermes_cli/auth.py',
+    'tools/url_safety.py',
+    'tools/registry.py',
+    'tools/tool_search.py',
+    'plugins/web/ddgs/_search_worker.py',
+    'plugins/web/ddgs/provider.py',
   ]) {
     fs.mkdirSync(path.dirname(path.join(runtime, name)), { recursive: true });
     fs.writeFileSync(path.join(runtime, name), '# inert fixture');
@@ -56,6 +62,27 @@ test('activation is explicit, private, pinned and cannot reset history', (t) => 
   assert.equal(createPilotJournal(options).binding(), null);
   assert.equal(fs.existsSync(path.join(plan.home, 'state.db')), false);
   assert.equal(fs.statSync(path.join(plan.home, '.ekybot-pilot-active.json')).mode & 0o777, 0o600);
+  const before = fs.readFileSync(path.join(plan.home, 'auth.json'), 'utf8');
+  const lock = path.join(plan.home, 'pilot-journal/conversation.lock');
+  fs.writeFileSync(lock, 'running fixture', { mode: 0o600 });
+  assert.throws(() => enablePilotWeb(options), 'Cannot reconfigure an active conversation');
+  fs.unlinkSync(lock);
+  assert.deepEqual(enablePilotWeb(options), {
+    enabled: true,
+    oldContextImported: false,
+    memoryReset: false,
+  });
+  assert.equal(fs.readFileSync(path.join(plan.home, 'auth.json'), 'utf8'), before);
+  assert.equal(fs.existsSync(path.join(plan.home, 'state.db')), false);
+  assert.ok(readActivation(options).active.webFingerprint);
+  assert.equal(
+    fs.statSync(path.join(plan.home, '.web-enablement-backup.json')).mode & 0o777,
+    0o600
+  );
+  assert.throws(() => enablePilotWeb(options), 'Never overwrite the pre-Web rollback');
+  fs.appendFileSync(path.join(runtime, 'tools/url_safety.py'), '\n# changed');
+  assert.throws(() => readActivation(options), 'Web dependencies are pinned too');
+  fs.writeFileSync(path.join(runtime, 'tools/url_safety.py'), '# inert fixture');
   fs.appendFileSync(path.join(runtime, 'run_agent.py'), '\n# changed');
   assert.throws(() => readActivation(options));
 });
