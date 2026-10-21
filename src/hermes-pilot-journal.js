@@ -14,7 +14,7 @@ const NATIVE_ID = /^\d{8}_\d{6}_[a-f0-9]{6}$/;
 const fail = (code) =>
   safetyError(code, 'Pilot stopped safely; inspect the private journal before retrying.');
 
-class HermesPilotJournal {
+class DurableConversationJournal {
   constructor({
     stateDir,
     channelId,
@@ -22,12 +22,17 @@ class HermesPilotJournal {
     homeRoot,
     execute,
     assertFresh,
-    inspectSession = inspectHermesSession,
+    inspectSession,
+    validSessionId,
+    assertContinuation,
   }) {
     if (
       !UUID.test(channelId || '') ||
       typeof execute !== 'function' ||
-      typeof assertFresh !== 'function'
+      typeof assertFresh !== 'function' ||
+      typeof inspectSession !== 'function' ||
+      typeof validSessionId !== 'function' ||
+      typeof assertContinuation !== 'function'
     ) {
       throw fail('PILOT_CONFIG_INVALID');
     }
@@ -39,6 +44,8 @@ class HermesPilotJournal {
       execute,
       assertFresh,
       inspectSession,
+      validSessionId,
+      assertContinuation,
     });
     // Reuse the private-directory validator used by the strict resume path.
     new HermesResumeGuard({ stateDir }).ensureDirectory();
@@ -61,7 +68,7 @@ class HermesPilotJournal {
       binding.channelId !== this.channelId ||
       binding.profile !== this.profile ||
       binding.homeRoot !== this.homeRoot ||
-      !NATIVE_ID.test(binding.sessionId)
+      !this.validSessionId(binding.sessionId)
     ) {
       throw fail('PILOT_BINDING_CONFLICT');
     }
@@ -150,7 +157,7 @@ class HermesPilotJournal {
         channelId: this.channelId,
       });
       if (
-        !NATIVE_ID.test(result?.sessionId || '') ||
+        !this.validSessionId(result?.sessionId || '') ||
         typeof result.output !== 'string' ||
         !result.output.trim() ||
         result.output.length > 50000 ||
@@ -167,7 +174,7 @@ class HermesPilotJournal {
       });
       const after = await inspect(result.sessionId);
       if (before) {
-        assertPersistedContinuation(before, after);
+        this.assertContinuation(before, after);
       }
       if (!binding) {
         writeDurableJson(bindingPath, {
@@ -231,6 +238,19 @@ class HermesPilotJournal {
   }
 }
 
+// Preserve the qualified Hermes policy while sharing intent, locks and outbox
+// with subsequent runtimes. A runtime must provide its own persistence proof.
+class HermesPilotJournal extends DurableConversationJournal {
+  constructor(options) {
+    super({
+      ...options,
+      inspectSession: options.inspectSession || inspectHermesSession,
+      validSessionId: (id) => typeof id === 'string' && NATIVE_ID.test(id),
+      assertContinuation: assertPersistedContinuation,
+    });
+  }
+}
+
 // A bounded tick: scheduled by the dedicated service later. Never loops here.
 async function pilotTick({ journal, machine }) {
   const deliver = async (receipt) => {
@@ -273,4 +293,4 @@ async function pilotTick({ journal, machine }) {
   return { status: 'delivered', count: 1 };
 }
 
-module.exports = { HermesPilotJournal, pilotTick };
+module.exports = { HermesPilotJournal, DurableConversationJournal, pilotTick };
