@@ -41,10 +41,19 @@ async function planAgent({
   const sources = new Map();
   const runtime = await openRuntime({ stateDir, chatId: claim.chat.id, agent });
   try {
-    let input = `${protocol}\nCONNEXIONS: ${bounded(
+    const scopeBudget = Math.max(
+      600,
+      Math.min(2500, 11200 - protocol.length - claim.job.input.length)
+    );
+    const prefix = `${protocol}\nCONNEXIONS: ${bounded(
       connections.map(({ id, label, project_id, scopes }) => ({ id, label, project_id, scopes })),
-      2500
-    )}\nCONTEXTE DE CE PÉRIMÈTRE: ${bounded({ history: claim.history, actions: claim.actions, collaborators: claim.outputs }, 4000)}\nDEMANDE: ${claim.job.input}`;
+      scopeBudget
+    )}`;
+    const historyBudget = Math.max(
+      100,
+      Math.min(4000, 11800 - prefix.length - claim.job.input.length)
+    );
+    let input = `${prefix}\nCONTEXTE DE CE PÉRIMÈTRE: ${bounded({ history: claim.history, actions: claim.actions, collaborators: claim.outputs }, historyBudget)}\nDEMANDE: ${claim.job.input}`;
     if (input.length > 12000) {
       throw new Error('BMT context limit');
     }
