@@ -13,6 +13,7 @@ const { readPrivateJson, writeDurableJson } = require('./hermes-resume-guard');
 const { buildPilotRouting } = require('./hermes-pilot-routing');
 const { safetyError } = require('./hermes-session-safety');
 const KEY_FILE = '.ekybot-anthropic-key.json';
+const WORKSPACE_ID = /^wrkspc_[A-Za-z0-9]{8,80}$/;
 // Syntax screening only: Console keys are not limited to legacy sk-ant-api…
 // keys (personal keys can use sk-ant-usr-…). Access must be checked with the API.
 const isAnthropicApiKey = (key) =>
@@ -123,10 +124,46 @@ function installAnthropicKey(key, options = {}) {
   };
 }
 
+function readAnthropicCredential(options = {}) {
+  const plan = planFreshProfile(options);
+  const file = path.join(plan.home, KEY_FILE);
+  assertNoSymlinkChain(file);
+  assertPrivate(plan.home, true);
+  const credential = readPrivateJson(file);
+  if (
+    credential.version !== 1 ||
+    credential.provider !== 'anthropic' ||
+    !isAnthropicApiKey(credential.apiKey) ||
+    (credential.workspaceId !== undefined && !WORKSPACE_ID.test(credential.workspaceId))
+  ) {
+    throw fail();
+  }
+  return credential;
+}
+
+function selectAnthropicWorkspace(workspaceId, options = {}) {
+  if (!WORKSPACE_ID.test(workspaceId || '')) {
+    throw new Error('Expected the exact Anthropic workspace ID.');
+  }
+  const credential = readAnthropicCredential(options);
+  if (credential.workspaceId && credential.workspaceId !== workspaceId) {
+    throw new Error('An existing different workspace is never silently replaced.');
+  }
+  // This transition is only supported before the first native session.
+  configurePilotProfile(options);
+  writeDurableJson(path.join(planFreshProfile(options).home, KEY_FILE), {
+    ...credential,
+    workspaceId,
+  });
+  return { status: 'workspace-selected', workspaceId, modelInvoked: false };
+}
+
 module.exports = {
   configurePilotProfile,
   importAnthropicKey,
   installAnthropicKey,
   isAnthropicApiKey,
+  readAnthropicCredential,
+  selectAnthropicWorkspace,
   KEY_FILE,
 };
