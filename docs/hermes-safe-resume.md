@@ -18,11 +18,31 @@ node scripts/hermes-prepare-profile.js --check
 
 La création native `hermes profile create` n’est pas utilisée : dans le runtime inspecté, elle recopie par défaut le bloc modèle du profil actif et peut semer des skills. Le démarrage CLI lit aussi le `.env` du dépôt Hermes comme complément, et les profils habituels peuvent retomber sur des réglages de la racine commune. La racine distincte élimine une source d’héritage, mais l’environnement du lanceur et les credentials restent à qualifier avant activation.
 
-Un diagnostic expérimental, `scripts/hermes-profile-isolation-probe.py`, exerce uniquement les lecteurs de mémoire/contexte/skills, avec réseau, sous-processus, anciennes données et écritures interdits. Sur un profil temporaire fictif, il s’est arrêté sur un `mkdir` du répertoire de profil déjà présent. Deux essais ont été effectués puis arrêtés conformément à la règle anti-boucle du dépôt. **La qualification native n’est pas acquise.** Il faut examiner cette opération sans effet sur un dossier existant, adapter précisément le contrôle puis reprendre le diagnostic avec l’accord du propriétaire ; ne pas supprimer les interdictions globales. Le script n’a pas été exécuté sur le profil réel et ne fait pas partie de la suite Node verte.
+Le diagnostic `scripts/hermes-profile-isolation-probe.py` passe sur un profil temporaire et sur le profil pilote réel, avec les lecteurs natifs de Hermes. Il confirme une mémoire et une mémoire utilisateur vides, aucun contexte de projet chargé et aucun skill externe. Les inspections `--check` avant et après confirment les mêmes fichiers, empreintes et permissions, sans session créée. Aucun appel modèle.
+
+**Ce résultat porte sur les lecteurs, pas sur le démarrage du CLI.** Le lecteur natif `load_soul_md()` appelle aussi `ensure_hermes_home()`, qui crée des dossiers et applique des permissions. Il est donc exclu de cette recette strictement sans écriture ; son initialisation n’est ni simulée ni neutralisée pour faire passer le contrôle. La seule opération `mkdir` admise vise le dossier `memories` déjà présent, non symbolique. Le démarrage natif et le chargement de `SOUL.md`, `.env`, credentials et plugins restent à qualifier séparément sur un profil jetable avant activation du pilote.
+
+Le contrôle Python interrompt les accès réseau, sous-processus, écritures et lectures de secrets/anciens contextes couverts par ses règles. Il résout aussi les liens symboliques pour les lectures. C’est un détecteur d’effets indésirables pendant cette recette, **pas une sandbox de sécurité du processus**. Douze tests sur modules fictifs vérifient ses refus et le périmètre annoncé ; ils ne remplacent pas la recette native.
+
+Commande native utilisée sur le Mac, dans un environnement sans credentials et sans écriture de bytecode :
+
+```sh
+node scripts/hermes-prepare-profile.js --check
+env -i PATH=/usr/bin:/bin \
+  HERMES_HOME=/Users/ekytec/.local/share/ekybot-v2/hermes/profiles/ekybot-v2-pilot \
+  /Users/ekytec/.openclaw/hermes-agent/.venv/bin/python -I -B \
+  scripts/hermes-profile-isolation-probe.py \
+  --runtime /Users/ekytec/.openclaw/hermes-agent \
+  --home /Users/ekytec/.local/share/ekybot-v2/hermes/profiles/ekybot-v2-pilot \
+  --root /Users/ekytec/.local/share/ekybot-v2/hermes
+node scripts/hermes-prepare-profile.js --check
+```
+
+Le résultat attendu est `status: passed`, avec `soulLoaderTested`, `nativeBootstrapTested` et `fullRuntimeActivationQualified` à `false`. Un résultat différent suspend cette recette ; ne pas élargir automatiquement les permissions pour la terminer.
 
 ## Première session et activation à implémenter
 
-1. Recontrôler le profil préparé et terminer la qualification des lecteurs natifs. Refuser tout changement de son état vide ou chargement d’un ancien contexte.
+1. Conserver le profil réel vide et bloqué. Qualifier ensuite l’initialisation native sur un profil jetable : effets de création/permissions limités à ce profil, aucun ancien contexte ni secret chargé, aucun modèle appelé. Ne pas utiliser la recette des lecteurs pour autoriser le CLI.
 2. Définir de nouvelles instructions et les outils autorisés. Vérifier aussi la mémoire globale, les fichiers de contexte des dossiers parents et les variables d’environnement : un nouveau nom de profil ne prouve pas à lui seul l’isolation.
 3. Créer la première session avec une demande stable, puis enregistrer durablement l’identifiant natif retourné, le profil et le nouveau canal. Ne jamais déduire cet identifiant d’un titre, d’un préfixe ou de la session la plus récente.
 4. Si cette création s’interrompt avec un résultat incertain, suspendre et réconcilier ; ne pas lancer automatiquement une deuxième création.
@@ -101,6 +121,6 @@ Ce mécanisme ne verrouille pas les clients Hermes externes, ne rend pas idempot
 node --test tests/*.test.js
 ```
 
-Au 21 octobre 2026 : **105 tests Node passent**, dont les validations SQLite sur bases fictives, les arguments CLI avec processus simulé, le rejeu après recréation de l’adaptateur, la concurrence de deux gardes, la mort d’un vrai sous-processus Node pendant une exécution fictive et les protections du provisionnement. Aucun processus Hermes ni modèle n’est appelé par cette suite. Le lint ciblé passe également. Le diagnostic Python expérimental reste non validé, comme indiqué plus haut.
+Au 21 octobre 2026 : **117 tests Node passent**, dont les validations SQLite sur bases fictives, les arguments CLI avec processus simulé, le rejeu après recréation de l’adaptateur, la concurrence de deux gardes, la mort d’un vrai sous-processus Node pendant une exécution fictive, les protections du provisionnement et les 12 tests du diagnostic Python. Ces derniers nécessitent Python 3 (`EKYBOT_PROBE_PYTHON` permet de choisir l’interpréteur) et utilisent des modules Hermes fictifs. Aucun runtime Hermes ni modèle n’est appelé par cette suite. Le lint ciblé passe également. La recette séparée des lecteurs natifs passe sur les profils temporaire et réel, avec les limites précisées plus haut.
 
-Le connecteur actif, l’ancienne base, les secrets et les conversations n’ont pas été reconfigurés. Le profil vide est créé ; sa qualification native, la première session et la livraison de bout en bout restent les prochains critères du pilote. La récupération de l’ancien chat est abandonnée.
+Le connecteur actif, l’ancienne base, les secrets et les conversations n’ont pas été reconfigurés. Le profil vide et ses lecteurs sont vérifiés ; l’initialisation complète, la première session et la livraison de bout en bout restent les prochains critères du pilote. La récupération de l’ancien chat est abandonnée.

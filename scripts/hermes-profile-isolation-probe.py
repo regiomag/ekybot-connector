@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Exercise native Hermes readers only, with network/process/write denial.
 
-Not a full CLI startup test. In particular, it does not qualify dotenv,
-provider credentials, plugins or native session creation/activation.
+Not a full CLI startup test. In particular, it does not qualify SOUL loading
+(which bootstraps directories), dotenv, credentials, plugins or sessions.
+The audit hook is a diagnostic tripwire, not an OS security sandbox.
 """
 import argparse
 import json
@@ -42,12 +43,13 @@ def audit(event, values):
     if event in {'os.rename', 'os.remove', 'os.rmdir', 'os.symlink', 'os.link', 'os.chmod', 'os.truncate'}:
         reject(event)
     if event == 'os.mkdir':
-        # MemoryStore calls mkdir(exist_ok=True) for this already-existing dir.
-        target = Path(values[0]).absolute()
-        if target != home / 'memories' or not target.is_dir():
+        # Only MemoryStore's existing directory is admissible. Native home
+        # bootstrap is not a reader and must remain blocked by this probe.
+        target = Path(os.fsdecode(values[0])).absolute()
+        if target != home / 'memories' or target.is_symlink() or not target.is_dir():
             reject(f'{event}:{target}')
     if event == 'open' and isinstance(values[0], (str, bytes, os.PathLike)):
-        target = Path(os.fsdecode(values[0])).absolute()
+        target = Path(os.fsdecode(values[0])).resolve()
         mode, flags = values[1], values[2]
         if (isinstance(mode, str) and any(c in mode for c in 'wax+')) or (isinstance(flags, int) and flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND)):
             reject('file_write')
@@ -59,7 +61,7 @@ sys.addaudithook(audit)
 
 from hermes_constants import get_hermes_home, get_default_hermes_root
 from tools.memory_tool import MemoryStore, get_memory_dir
-from agent.prompt_builder import build_context_files_prompt, load_soul_md
+from agent.prompt_builder import build_context_files_prompt
 from agent.skill_utils import get_all_skills_dirs, get_project_skills_dirs
 
 assert get_hermes_home() == home
@@ -71,7 +73,9 @@ assert memory.memory_entries == [] and memory.user_entries == []
 assert not memory.format_for_system_prompt('memory')
 assert not memory.format_for_system_prompt('user')
 assert build_context_files_prompt(cwd=str(workspace), skip_soul=True, home_override=home) == ''
-assert load_soul_md(home_override=home) == (home / 'SOUL.md').read_text().strip()
+# load_soul_md() invokes ensure_hermes_home(): mkdir/chmod and optional
+# seeding. Do not mock that initializer or weaken the no-write guard to
+# present a bootstrap-dependent path as a read-only qualification.
 assert get_all_skills_dirs() == [home / 'skills']
 assert get_project_skills_dirs() == []
 assert list((home / 'skills').iterdir()) == []
@@ -81,5 +85,6 @@ print(json.dumps({
     'status': 'passed', 'scope': 'native-memory-context-skill-readers',
     'memoryEntries': 0, 'userEntries': 0, 'projectContextLoaded': False,
     'externalSkillsLoaded': False, 'legacyReads': 0, 'modelInvoked': False,
+    'soulLoaderTested': False, 'nativeBootstrapTested': False,
     'fullRuntimeActivationQualified': False,
 }, indent=2))
