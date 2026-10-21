@@ -13,6 +13,7 @@ import sys
 
 
 def execute(request):
+    rejection_statuses = set(json.loads((Path(__file__).resolve().parent.parent / "src/hermes-pilot-rejections.json").read_text()).values())
     home = Path(request["home"]).resolve(strict=True)
     runtime = Path(request["runtime"]).resolve(strict=True)
     packages = Path(request["packages"]).resolve(strict=True)
@@ -216,7 +217,7 @@ def execute(request):
         def guarded_fallback(self, reason=None):
             nonlocal fallback_activated
             if (fallback_activated or len(attempts) != 1
-                    or attempts[0].get("httpStatus") not in (401, 403, 404, 429)):
+                    or attempts[0].get("httpStatus") not in rejection_statuses):
                 return False
             fallback_activated = True
             attempts[0]["status"] = "rejected-before-execution"

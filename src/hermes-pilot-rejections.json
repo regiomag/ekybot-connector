@@ -1,0 +1,6 @@
+{
+  "authentication_required": 401,
+  "permission_denied": 403,
+  "rate_limited": 429,
+  "model_unavailable": 404
+}

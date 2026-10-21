@@ -1,15 +1,10 @@
 // Pure routing decision. It never sends a prompt or marks a run completed.
 // The transport, not a model response, must provide the rejection evidence.
 const { buildPilotRouting } = require('./hermes-pilot-routing');
+const statusByCode = require('./hermes-pilot-rejections.json');
 
 function choosePilotFallback(evidence, options = {}) {
   const route = buildPilotRouting({ ...options, routingMode: 'openai-primary' });
-  const statusByCode = {
-    authentication_required: 401,
-    permission_denied: 403,
-    rate_limited: 429,
-    model_unavailable: 404,
-  };
   if (
     evidence?.provider !== route.primary.provider ||
     evidence?.disposition !== 'rejected-before-execution' ||
