@@ -33,8 +33,9 @@ function runtimeFingerprint(runtime) {
     !path.isAbsolute(runtime) ||
     fs.existsSync(path.join(runtime, '.env')) ||
     fs.existsSync(path.join(runtime, '.git'))
-  )
-    {throw fail();}
+  ) {
+    throw fail();
+  }
   return hash(
     CORE.map((name) => {
       const file = path.join(runtime, name);
@@ -45,11 +46,14 @@ function runtimeFingerprint(runtime) {
 }
 
 function activatePilot({ channelId, runtime, packages, python, ...options }) {
-  if (!UUID.test(channelId || '') || ![runtime, packages, python].every(path.isAbsolute))
-    {throw fail();}
+  if (!UUID.test(channelId || '') || ![runtime, packages, python].every(path.isAbsolute)) {
+    throw fail();
+  }
   const plan = planFreshProfile(options);
   const destination = path.join(plan.home, ACTIVE_FILE);
-  if (fs.existsSync(destination)) {throw fail();} // Never silently replace an activation.
+  if (fs.existsSync(destination)) {
+    throw fail();
+  } // Never silently replace an activation.
   const fingerprint = runtimeFingerprint(runtime);
   configurePilotProfile({ ...options, routingMode: 'openai-primary' });
   const config = buildPilotExecutionConfig({ ...options, routingMode: 'openai-primary' });
@@ -78,8 +82,9 @@ function readActivation(options = {}) {
     !UUID.test(active.channelId) ||
     active.fingerprint !== runtimeFingerprint(active.runtime) ||
     active.configHash !== hash(JSON.stringify(readPrivateJson(path.join(plan.home, 'config.yaml'))))
-  )
-    {throw fail();}
+  ) {
+    throw fail();
+  }
   return { plan, active };
 }
 
@@ -90,11 +95,14 @@ function readOpenAICredential(home) {
     auth?.auth_mode !== 'chatgpt' ||
     typeof token !== 'string' ||
     !/^[A-Za-z0-9_.-]{30,20000}$/.test(token)
-  )
-    {throw fail();}
+  ) {
+    throw fail();
+  }
   const claims = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8'));
   const accountId = claims?.['https://api.openai.com/auth']?.chatgpt_account_id;
-  if (!/^[A-Za-z0-9_-]{8,128}$/.test(accountId || '')) {throw fail();}
+  if (!/^[A-Za-z0-9_-]{8,128}$/.test(accountId || '')) {
+    throw fail();
+  }
   return { apiKey: token, accountId };
 }
 
@@ -130,10 +138,14 @@ function invokeNative({ plan, active, job, credential, fallbackCredential }) {
     child.stderr.resume(); // Native diagnostics can contain requests: never publish them.
     child.on('close', (code) => {
       clearTimeout(timer);
-      if (failed || code !== 0) {return reject(fail());}
+      if (failed || code !== 0) {
+        return reject(fail());
+      }
       try {
         const result = JSON.parse(output);
-        if (result.offline !== false || ![1, 2].includes(result.modelRequests)) {throw fail();}
+        if (result.offline !== false || ![1, 2].includes(result.modelRequests)) {
+          throw fail();
+        }
         resolve(result);
       } catch {
         reject(fail());
@@ -163,9 +175,13 @@ function createPilotJournal(options = {}) {
     profile: plan.profile,
     homeRoot: plan.root,
     assertFresh: () => {
-      if (fs.existsSync(path.join(plan.home, 'state.db'))) {throw fail();}
+      if (fs.existsSync(path.join(plan.home, 'state.db'))) {
+        throw fail();
+      }
       for (const file of ['memories/MEMORY.md', 'memories/USER.md']) {
-        if (fs.statSync(path.join(plan.home, file)).size) {throw fail();}
+        if (fs.statSync(path.join(plan.home, file)).size) {
+          throw fail();
+        }
       }
     },
     execute: (job) => {

@@ -23,7 +23,9 @@ async function runMachineTick(options = {}) {
       headers: { authorization: `Bearer ${config.token}`, 'content-type': 'application/json' },
       body: JSON.stringify(body),
     });
-    if (!response.ok) {throw new Error('Machine request unconfirmed');}
+    if (!response.ok) {
+      throw new Error('Machine request unconfirmed');
+    }
     return response.json();
   };
   return pilotTick({ journal: createPilotJournal(options), machine });
