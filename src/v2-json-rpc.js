@@ -2,13 +2,22 @@ const { spawn } = require('node:child_process');
 
 // One local stdio connection. Never exposes raw stderr, environment or errors.
 class JsonRpcProcess {
-  constructor({ command, args, cwd, env, spawnProcess = spawn, requestTimeout = 30000 }) {
+  constructor({
+    command,
+    args,
+    cwd,
+    env,
+    spawnProcess = spawn,
+    requestTimeout = 30000,
+    onRequest,
+  }) {
     this.pending = new Map();
     this.listeners = new Set();
     this.nextId = 1;
     this.closed = false;
     this.exited = false;
     this.requestTimeout = requestTimeout;
+    this.onRequest = onRequest;
     this.child = spawnProcess(command, args, { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] });
     this.child.stdin.on('error', () => this.close());
     this.child.stderr.resume();
@@ -42,6 +51,27 @@ class JsonRpcProcess {
   }
   receive(message) {
     if (message.method && message.id !== undefined) {
+      if (this.onRequest) {
+        Promise.resolve()
+          .then(() => this.onRequest(message))
+          .then(
+            (result) => {
+              if (!this.closed) {
+                this.write({ id: message.id, result });
+              }
+            },
+            () => {
+              if (!this.closed) {
+                this.write({
+                  id: message.id,
+                  error: { code: -32603, message: 'Tool request refused.' },
+                });
+              }
+            }
+          )
+          .catch(() => this.close());
+        return;
+      }
       // No implicit approval or client-side tool execution. Unknown requests fail
       // closed; adding approvals later must use a durable, user-bound request.
       this.write({

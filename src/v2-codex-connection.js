@@ -86,6 +86,7 @@ async function openCodexChatConnection({
   home,
   createRpc = (options) => new JsonRpcProcess(options),
   versionCheck = execFileSync,
+  toolRequest,
 }) {
   if (
     !path.isAbsolute(cwd || '') ||
@@ -113,10 +114,17 @@ async function openCodexChatConnection({
     for (const [key, value] of Object.entries({ ...settings, ...extra })) {
       args.push('-c', `${key}=${JSON.stringify(value)}`);
     }
-    const rpc = createRpc({ command, args, cwd, env });
+    const rpc = createRpc({
+      command,
+      args,
+      cwd,
+      env,
+      ...(toolRequest ? { onRequest: toolRequest } : {}),
+    });
     try {
       await rpc.request('initialize', {
         clientInfo: { name: 'ekybot_v2_chat', title: 'Ekybot V2', version: '0.1.0' },
+        ...(toolRequest ? { capabilities: { experimentalApi: true } } : {}),
       });
       rpc.notify('initialized');
       return rpc;

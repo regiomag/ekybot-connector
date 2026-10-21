@@ -8,11 +8,11 @@ const validSessionId = (id) => typeof id === 'string' && UUID.test(id);
 // Transport-independent adapter. The launcher must qualify the effective native
 // policy before constructing this adapter; this module grants no permissions.
 class CodexConversationRuntime {
-  constructor({ rpc, cwd, assertPolicy, timeoutMs = 120000, effort }) {
+  constructor({ rpc, cwd, assertPolicy, timeoutMs = 120000, effort, development }) {
     if (!rpc || typeof assertPolicy !== 'function' || typeof cwd !== 'string') {
       throw fail('CODEX_CONFIG_INVALID');
     }
-    Object.assign(this, { rpc, cwd, assertPolicy, timeoutMs, effort });
+    Object.assign(this, { rpc, cwd, assertPolicy, timeoutMs, effort, development });
   }
 
   checkThread(thread, expectedId) {
@@ -94,6 +94,10 @@ class CodexConversationRuntime {
     }
     await this.assertPolicy();
     const params = { cwd: this.cwd, approvalPolicy: 'never', sandbox: 'read-only' };
+    if (this.development) {
+      params.dynamicTools = this.development.tools.map((t) => ({ ...t, type: 'function' }));
+      params.developerInstructions = this.development.instructions;
+    }
     const result = sessionId
       ? await this.rpc.request('thread/resume', {
           ...params,
@@ -106,6 +110,9 @@ class CodexConversationRuntime {
           serviceName: 'ekybot-v2',
         });
     const thread = this.checkThread(result.thread, sessionId);
+    if (this.development) {
+      this.development.bind(thread.id);
+    }
     if (!sessionId && thread.turns?.length) {
       throw fail('CODEX_THREAD_NOT_FRESH');
     }
