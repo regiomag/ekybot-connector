@@ -10,6 +10,10 @@ Bridge your local OpenClaw gateway to EkyBot so users can chat with agents from 
 - **Companion health** — Machine monitoring from Ekybot dashboard.
 - **Relay-push wake** — Immediate dispatch on @mention (no 30s polling wait).
 
+## Controlled Hermes session resumption
+
+The V2 pilot starts with a fresh Hermes profile, conversation and memory, without importing existing data. The opt-in [Hermes continuity runbook](docs/hermes-safe-resume.md) describes exact local session bindings and durable replay protection for those new sessions once created. Initial profile/session provisioning still needs qualification; this guard is not enabled by default. The unconfigured CLI path does not guarantee context continuity.
+
 ## What's new (2026-04)
 
 - Budget guard: block or log when a session exceeds a cost threshold

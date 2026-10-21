@@ -10,6 +10,7 @@
  * Network calls: none of its own; see the transports.
  *
  * Transport selection (plan §13.2), in order:
+ *   0. Explicit local resume binding      — CLI only, reject forced HTTP
  *   1. EKYBOT_HERMES_TRANSPORT=http|cli   — explicit escape hatch
  *   2. GET /v1/capabilities answers        — http
  *   3. otherwise                           — cli
@@ -27,6 +28,10 @@
 const { assertValidProfile } = require('./runtime-adapter');
 const HermesHttpTransport = require('./hermes-http-transport');
 const HermesCliTransport = require('./hermes-cli-transport');
+const path = require('path');
+const os = require('os');
+const { HermesResumeGuard, RUN_ID_PATTERN } = require('./hermes-resume-guard');
+const { safetyError } = require('./hermes-session-safety');
 
 const VALID_TRANSPORTS = new Set(['http', 'cli']);
 
@@ -39,6 +44,9 @@ class HermesAdapter {
    * @param {object} [options.env] - Environment to read EKYBOT_HERMES_TRANSPORT from.
    * @param {object} [options.httpTransport] - Pre-built transport (tests).
    * @param {object} [options.cliTransport] - Pre-built transport (tests).
+   * @param {boolean} [options.requireResume] - Forbid legacy execution without a binding.
+   * @param {string} [options.resumeBindingsPath] - Absolute owner-only local JSON file.
+   * @param {string} [options.resumeStateDir] - Shared private durable journal directory.
    */
   constructor(options = {}) {
     const {
@@ -48,6 +56,7 @@ class HermesAdapter {
       env = process.env,
       httpTransport = null,
       cliTransport = null,
+      resumeGuard = null,
     } = options;
 
     this.httpTransport = httpTransport || new HermesHttpTransport(http);
@@ -56,6 +65,32 @@ class HermesAdapter {
     this.forcedTransport = normalizeTransport(transport) || readEnvTransport(env);
     this.selectedName = null;
     this.selectionPromise = null;
+    const bindingsPath = options.resumeBindingsPath || env?.EKYBOT_HERMES_RESUME_BINDINGS_PATH;
+    const requireResume =
+      options.requireResume === true || env?.EKYBOT_HERMES_REQUIRE_RESUME === '1';
+    if (requireResume && !bindingsPath && !resumeGuard) {
+      throw safetyError(
+        'HERMES_BINDING_REQUIRED',
+        'Strict resume is required but its local bindings path is missing; legacy execution is disabled.'
+      );
+    }
+    this.resumeGuard =
+      resumeGuard ||
+      (bindingsPath
+        ? new HermesResumeGuard({
+            bindingsPath,
+            stateDir:
+              options.resumeStateDir ||
+              env?.EKYBOT_HERMES_RESUME_STATE_DIR ||
+              path.join(os.homedir(), '.config', 'ekybot-companion', 'hermes-resume'),
+          })
+        : null);
+    if (this.resumeGuard && this.forcedTransport === 'http') {
+      throw safetyError(
+        'HERMES_TRANSPORT_CONFLICT',
+        'Strict CLI resume cannot be combined with a forced HTTP transport.'
+      );
+    }
   }
 
   /**
@@ -63,6 +98,12 @@ class HermesAdapter {
    * @returns {Promise<{name: 'http'|'cli', transport: object}>}
    */
   async selectTransport() {
+    // A verified CLI binding cannot silently switch to HTTP after restart or
+    // a new capability probe. HTTP continuity must be qualified separately.
+    if (this.resumeGuard) {
+      this.selectedName = 'cli';
+      return { name: 'cli', transport: this.cliTransport };
+    }
     if (this.forcedTransport) {
       this.selectedName = this.forcedTransport;
       return { name: this.forcedTransport, transport: this.transportByName(this.forcedTransport) };
@@ -98,12 +139,27 @@ class HermesAdapter {
 
   async startRun(params) {
     assertValidProfile(params?.profile);
+    if (!this.resumeGuard && params?.resumeSessionId) {
+      throw safetyError(
+        'HERMES_BINDING_REQUIRED',
+        'Native session resumption requires an explicit local binding.'
+      );
+    }
+    if (this.resumeGuard) {
+      return this.resumeGuard.startRun(params, async (bound) => {
+        const handle = await this.cliTransport.startRun(bound);
+        return this.cliTransport.getRun({ profile: bound.profile, runId: handle.runId });
+      });
+    }
     const { transport } = await this.selectTransport();
     return transport.startRun(params);
   }
 
   async getRun(params) {
     assertValidProfile(params?.profile);
+    if (this.resumeGuard && RUN_ID_PATTERN.test(params?.runId || '')) {
+      return this.resumeGuard.getRun(params);
+    }
     const { transport } = await this.selectTransport();
     return transport.getRun(params);
   }
@@ -142,9 +198,7 @@ class HermesAdapter {
           break;
         }
         if (deadline && Date.now() >= deadline) {
-          throw new Error(
-            `Hermes run ${handle.runId} still ${polled.status} after ${maxWaitMs}ms`
-          );
+          throw new Error(`Hermes run ${handle.runId} still ${polled.status} after ${maxWaitMs}ms`);
         }
       }
     }
@@ -163,6 +217,10 @@ class HermesAdapter {
 
   async stopRun(params) {
     assertValidProfile(params?.profile);
+    if (this.resumeGuard && RUN_ID_PATTERN.test(params?.runId || '')) {
+      const run = this.resumeGuard.getRun(params);
+      return { runId: run.runId, status: run.status, stopSupported: false };
+    }
     const { transport } = await this.selectTransport();
     return transport.stopRun(params);
   }
@@ -191,7 +249,9 @@ function isTerminalStatus(status) {
 }
 
 function normalizeTransport(value) {
-  if (typeof value !== 'string') return null;
+  if (typeof value !== 'string') {
+    return null;
+  }
   const normalized = value.trim().toLowerCase();
   return VALID_TRANSPORTS.has(normalized) ? normalized : null;
 }

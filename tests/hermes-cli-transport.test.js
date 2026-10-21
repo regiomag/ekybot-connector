@@ -40,12 +40,14 @@ describe('HermesCliTransport', () => {
     // hermes-client resolves HERMES_HOME with path.join(~/.hermes/profiles, profile),
     // so '../..' escapes the profiles directory.
     const transport = new HermesCliTransport({
-      execute: async () => { throw new Error('must not execute'); },
+      execute: async () => {
+        throw new Error('must not execute');
+      },
     });
 
     await assert.rejects(
       () => transport.startRun({ profile: '../../etc', input: 'hi' }),
-      /Invalid Hermes profile/,
+      /Invalid Hermes profile/
     );
   });
 
@@ -71,7 +73,9 @@ describe('HermesCliTransport', () => {
     const transport = new HermesCliTransport({
       execute: async () => {
         executions += 1;
-        if (executions === 1) throw new Error('transient boom');
+        if (executions === 1) {
+          throw new Error('transient boom');
+        }
         return okResult('recovered');
       },
     });
@@ -144,6 +148,52 @@ describe('HermesCliTransport', () => {
     assert.equal(transport.runs.size, 2);
     await assert.rejects(() => transport.getRun({ runId: a.runId }), /Unknown Hermes run/);
     // the evicted run's idempotency key is released with it
-    assert.equal(transport.idempotency.has('k1'), false);
+    assert.equal([...transport.idempotency.values()].includes(a.runId), false);
+  });
+
+  it('forwards a native resume id separately from the logical relay key', async () => {
+    let received;
+    const transport = new HermesCliTransport({
+      execute: async (_input, options) => {
+        received = options;
+        return okResult();
+      },
+    });
+    await transport.startRun({
+      input: 'test',
+      sessionId: 'agent:test:ekybot:channel',
+      resumeSessionId: '20261021_120000_abcdef',
+    });
+    assert.equal(received.resumeSessionId, '20261021_120000_abcdef');
+    assert.equal(received.sessionId, undefined);
+  });
+
+  it('does not share the memory replay cache across profiles or sessions', async () => {
+    let calls = 0;
+    const transport = new HermesCliTransport({
+      execute: async () => {
+        calls++;
+        return okResult();
+      },
+    });
+    await transport.startRun({
+      input: 'test',
+      profile: 'first',
+      sessionId: 'one',
+      idempotencyKey: 'same',
+    });
+    await transport.startRun({
+      input: 'test',
+      profile: 'second',
+      sessionId: 'one',
+      idempotencyKey: 'same',
+    });
+    await transport.startRun({
+      input: 'test',
+      profile: 'first',
+      sessionId: 'two',
+      idempotencyKey: 'same',
+    });
+    assert.equal(calls, 3);
   });
 });

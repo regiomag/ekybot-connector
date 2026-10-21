@@ -36,6 +36,7 @@
  * @property {string} [profile] - Runtime profile / agent identifier.
  * @property {string} input
  * @property {string} [sessionId] - Stable per-channel scope.
+ * @property {string} [resumeSessionId] - Exact native Hermes ID, resolved from a trusted local binding, never inferred from sessionId.
  * @property {string} [idempotencyKey] - A retry with the same key must not run twice.
  *
  * @typedef {object} RuntimeAdapter

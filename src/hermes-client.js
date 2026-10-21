@@ -15,24 +15,17 @@ const chalk = require('chalk');
 const os = require('os');
 const path = require('path');
 const fs = require('fs');
+const {
+  resolveHermesHome,
+  inspectHermesSession,
+  assertSessionId,
+  safetyError,
+} = require('./hermes-session-safety');
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_OUTPUT_LENGTH = 50_000; // ~50KB max response
 const HERMES_PROJECT_DIR = path.join(os.homedir(), '.openclaw', 'hermes-agent');
 const HERMES_BIN = path.join(os.homedir(), '.local', 'bin', 'hermes');
-const HERMES_DEFAULT_HOME = path.join(os.homedir(), '.hermes');
-
-/**
- * Resolve HERMES_HOME for a given profile name.
- * 'default' or null → ~/.hermes
- * other → ~/.hermes/profiles/<name>
- */
-function resolveHermesHome(profile) {
-  if (!profile || profile === 'default') {
-    return HERMES_DEFAULT_HOME;
-  }
-  return path.join(HERMES_DEFAULT_HOME, 'profiles', profile);
-}
 
 function resolveTimeoutMs() {
   const raw = process.env.EKYBOT_HERMES_TIMEOUT_MS;
@@ -56,17 +49,25 @@ function resolveMaxOutput() {
  * @param {string} options.profile - Hermes profile name (default, cortex, etc.)
  * @returns {Promise<{content: string, model: string, billingType: string, exitCode: number}>}
  */
-async function executeHermes(message, options = {}) {
-  const {
-    timeoutMs = resolveTimeoutMs(),
-    systemPrompt = null,
-    profile = null,
-  } = options;
+async function executeHermes(message, options = {}, dependencies = {}) {
+  const { timeoutMs = resolveTimeoutMs(), profile = null, resumeSessionId = null } = options;
+  const spawnImpl = dependencies.spawn || spawn;
+  const inspectSession = dependencies.inspectSession || inspectHermesSession;
 
   const maxOutput = resolveMaxOutput();
 
   const hermesHome = resolveHermesHome(profile);
   const profileLabel = profile || 'default';
+  if (resumeSessionId !== null) {
+    assertSessionId(resumeSessionId);
+    if (options.systemPrompt) {
+      throw safetyError(
+        'HERMES_INSTRUCTIONS_UNSUPPORTED',
+        'Per-run system instructions are not supported by strict CLI resume.'
+      );
+    }
+    await inspectSession({ profile, sessionId: resumeSessionId });
+  }
 
   console.log(
     chalk.magenta(
@@ -77,6 +78,11 @@ async function executeHermes(message, options = {}) {
   return new Promise((resolve, reject) => {
     // Build command: hermes chat -q "message" --quiet
     const args = ['chat', '-q', message, '--quiet'];
+    if (resumeSessionId !== null) {
+      // Never --continue/latest/title, never create-if-missing, and never let
+      // a stored cwd silently redirect the configured execution directory.
+      args.push('--resume', resumeSessionId, '--no-restore-cwd');
+    }
 
     // Enrich PATH for macOS LaunchAgent
     const enrichedEnv = { ...process.env };
@@ -96,7 +102,7 @@ async function executeHermes(message, options = {}) {
     // Set HERMES_HOME to use the correct profile
     enrichedEnv.HERMES_HOME = hermesHome;
 
-    const proc = spawn(HERMES_BIN, args, {
+    const proc = spawnImpl(HERMES_BIN, args, {
       cwd: HERMES_PROJECT_DIR,
       env: enrichedEnv,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -132,6 +138,15 @@ async function executeHermes(message, options = {}) {
       }
 
       settle(() => {
+        if (resumeSessionId !== null && (code !== 0 || truncated || !stdout.trim())) {
+          reject(
+            safetyError(
+              'HERMES_RESUME_UNCERTAIN',
+              'Hermes resume did not complete cleanly; partial stdout is not a completed response.'
+            )
+          );
+          return;
+        }
         if (code === 0 || stdout.trim().length > 0) {
           const response = stdout.trim() || '[No output]';
           // Estimate tokens for cost monitoring (~3.7 chars per token)
@@ -142,7 +157,7 @@ async function executeHermes(message, options = {}) {
           console.log(
             chalk.magenta(
               `[hermes] completed exitCode=${code} responseChars=${response.length} ` +
-              `tokens≈${totalTokensEst} (prompt≈${promptTokensEst} response≈${responseTokensEst} overhead≈${overheadTokensEst})`
+                `tokens≈${totalTokensEst} (prompt≈${promptTokensEst} response≈${responseTokensEst} overhead≈${overheadTokensEst})`
             )
           );
           resolve({
@@ -161,8 +176,7 @@ async function executeHermes(message, options = {}) {
           ) {
             console.warn(chalk.yellow(`[hermes] rate limit hit`));
             resolve({
-              content:
-                '⏳ Rate limit atteint sur OpenRouter. Réessaie dans quelques minutes.',
+              content: '⏳ Rate limit atteint sur OpenRouter. Réessaie dans quelques minutes.',
               model: 'hermes/openrouter',
               billingType: 'api',
               exitCode: code,
@@ -191,6 +205,15 @@ async function executeHermes(message, options = {}) {
         proc.kill('SIGTERM');
       }
       settle(() => {
+        if (resumeSessionId !== null) {
+          reject(
+            safetyError(
+              'HERMES_RESUME_UNCERTAIN',
+              'Hermes resume timed out; reconcile the session before retrying.'
+            )
+          );
+          return;
+        }
         if (stdout.trim().length > 0) {
           resolve({
             content:
@@ -201,11 +224,7 @@ async function executeHermes(message, options = {}) {
             exitCode: -1,
           });
         } else {
-          reject(
-            new Error(
-              `Hermes timed out after ${Math.round(timeoutMs / 1000)}s`
-            )
-          );
+          reject(new Error(`Hermes timed out after ${Math.round(timeoutMs / 1000)}s`));
         }
       });
     }, timeoutMs);
@@ -227,7 +246,15 @@ async function healthCheck() {
 
     const enrichedEnv = { ...process.env };
     const venvBin = path.join(HERMES_PROJECT_DIR, 'venv', 'bin');
-    enrichedEnv.PATH = [venvBin, path.join(os.homedir(), '.local', 'bin'), '/opt/homebrew/bin', '/usr/local/bin', enrichedEnv.PATH].filter(Boolean).join(':');
+    enrichedEnv.PATH = [
+      venvBin,
+      path.join(os.homedir(), '.local', 'bin'),
+      '/opt/homebrew/bin',
+      '/usr/local/bin',
+      enrichedEnv.PATH,
+    ]
+      .filter(Boolean)
+      .join(':');
     enrichedEnv.VIRTUAL_ENV = path.join(HERMES_PROJECT_DIR, 'venv');
 
     const proc = spawn(HERMES_BIN, ['--version'], {

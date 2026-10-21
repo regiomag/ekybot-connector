@@ -35,6 +35,10 @@
  * their configured personality. This transport forwards the option unchanged
  * rather than fixing it, because the extraction must not alter behaviour.
  * Reported to the decider; fix belongs in its own change.
+ *
+ * Opt-in strict resumption is wrapped by HermesResumeGuard at the facade.
+ * It adds durable intent/replay protection, binds a native resumeSessionId,
+ * and rejects unsupported systemPrompt instead of silently ignoring it.
  */
 
 const crypto = require('crypto');
@@ -74,13 +78,38 @@ class HermesCliTransport {
    * Execute a prompt. Blocks until the run is terminal.
    * @returns {Promise<{runId: string, status: 'completed'}>}
    */
-  async startRun({ profile, input, sessionId, idempotencyKey, timeoutMs, systemPrompt } = {}) {
+  async startRun({
+    profile,
+    input,
+    sessionId,
+    resumeSessionId,
+    idempotencyKey,
+    timeoutMs,
+    systemPrompt,
+  } = {}) {
     // hermes-client turns this into ~/.hermes/profiles/<profile> via path.join,
     // where '../..' would escape. Validate before it reaches the filesystem.
     assertValidProfile(profile);
 
-    if (idempotencyKey) {
-      const existingRunId = this.idempotency.get(idempotencyKey);
+    // Scope even the legacy memory cache. Strict resume has an additional
+    // durable guard at the facade; relay keys are NOT native Hermes IDs.
+    const scopedKey = idempotencyKey
+      ? crypto
+          .createHash('sha256')
+          .update(
+            JSON.stringify([
+              profile || 'default',
+              sessionId || null,
+              resumeSessionId || null,
+              idempotencyKey,
+              input,
+              systemPrompt || null,
+            ])
+          )
+          .digest('hex')
+      : null;
+    if (scopedKey) {
+      const existingRunId = this.idempotency.get(scopedKey);
       if (existingRunId) {
         const existing = this.runs.get(existingRunId);
         if (existing) {
@@ -95,6 +124,7 @@ class HermesCliTransport {
     const result = await this.resolveExecute()(input, {
       profile: profile ?? null,
       systemPrompt,
+      ...(resumeSessionId !== undefined ? { resumeSessionId } : {}),
       ...(timeoutMs ? { timeoutMs } : {}),
     });
 
@@ -109,8 +139,8 @@ class HermesCliTransport {
       sessionId: sessionId ?? null,
     });
 
-    if (idempotencyKey) {
-      this.idempotency.set(idempotencyKey, runId);
+    if (scopedKey) {
+      this.idempotency.set(scopedKey, runId);
     }
 
     return { runId, status: 'completed' };
