@@ -2,7 +2,7 @@ const path = require('node:path');
 const { readPrivateJson } = require('./hermes-resume-guard');
 const { readActivation, createPilotJournal } = require('./hermes-pilot-executor');
 const { pilotTick } = require('./hermes-pilot-journal');
-const ENDPOINT = 'https://jvqwmqlpozqoscmcigqn.supabase.co/functions/v1/ekybot-v2-machine';
+const { ENDPOINT, createMachineClient } = require('./v2-machine-client');
 
 async function runMachineTick(options = {}) {
   const { plan, active } = readActivation(options);
@@ -15,19 +15,7 @@ async function runMachineTick(options = {}) {
   ) {
     throw new Error('Invalid scoped machine configuration');
   }
-  const machine = async (body) => {
-    const response = await fetch(ENDPOINT, {
-      method: 'POST',
-      redirect: 'error',
-      signal: AbortSignal.timeout(25000),
-      headers: { authorization: `Bearer ${config.token}`, 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (!response.ok) {
-      throw new Error('Machine request unconfirmed');
-    }
-    return response.json();
-  };
+  const machine = createMachineClient(config);
   return pilotTick({ journal: createPilotJournal(options), machine });
 }
 module.exports = { runMachineTick };
