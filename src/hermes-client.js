@@ -15,6 +15,7 @@ const chalk = require('chalk');
 const os = require('os');
 const path = require('path');
 const fs = require('fs');
+const { PREPARED_MARKER } = require('./hermes-fresh-profile');
 const {
   resolveHermesHome,
   inspectHermesSession,
@@ -57,6 +58,17 @@ async function executeHermes(message, options = {}, dependencies = {}) {
   const maxOutput = resolveMaxOutput();
 
   const hermesHome = resolveHermesHome(profile);
+  // Preparing a profile is NOT activating it. Custom-root launch isolation
+  // (environment, credentials, cwd and runtime) needs separate qualification.
+  if (
+    process.env.EKYBOT_HERMES_HOME_ROOT ||
+    fs.existsSync(path.join(hermesHome, PREPARED_MARKER))
+  ) {
+    throw safetyError(
+      'HERMES_PROFILE_NOT_ACTIVATED',
+      'This isolated profile is prepared offline only; runtime activation is not yet qualified. No Hermes process was started.'
+    );
+  }
   const profileLabel = profile || 'default';
   if (resumeSessionId !== null) {
     assertSessionId(resumeSessionId);

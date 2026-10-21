@@ -12,7 +12,7 @@ Bridge your local OpenClaw gateway to EkyBot so users can chat with agents from 
 
 ## Controlled Hermes session resumption
 
-The V2 pilot starts with a fresh Hermes profile, conversation and memory, without importing existing data. The opt-in [Hermes continuity runbook](docs/hermes-safe-resume.md) describes exact local session bindings and durable replay protection for those new sessions once created. Initial profile/session provisioning still needs qualification; this guard is not enabled by default. The unconfigured CLI path does not guarantee context continuity.
+The V2 pilot starts with a fresh Hermes profile, conversation and memory, without importing existing data. `node scripts/hermes-prepare-profile.js --plan|--create|--check` prepares a private, empty profile offline and refuses overwrites. This does not activate Hermes or create a native session. The [Hermes continuity runbook](docs/hermes-safe-resume.md) describes the remaining qualification, exact local session bindings and durable replay protection. The unconfigured CLI path does not guarantee context continuity.
 
 ## What's new (2026-04)
 

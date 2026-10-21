@@ -2,17 +2,33 @@
 
 Le pilote V2 démarre **sans aucun historique ni mémoire Hermes existants**, conformément à la décision du propriétaire du 21 octobre 2026. Il utilisera un profil isolé, une nouvelle conversation et une mémoire vide. Aucun import, résumé de transition ou recherche d’association avec les anciennes sessions n’est requis. L’ancien environnement reste intact et hors du routage V2.
 
-La direction visuelle BMT est validée. Le garde-fou décrit ici prépare la **continuité des futures sessions V2 après leur création**. Il est opt-in et non activé sur le Companion en service. Il ne provisionne pas encore le nouveau profil ni sa première session ; la préparation de ces deux étapes est le prochain incrément.
+La direction visuelle BMT est validée. Le garde-fou décrit ici prépare la **continuité des futures sessions V2 après leur création**. Il est opt-in et non activé sur le Companion en service. Un provisionneur distinct prépare désormais le profil vide hors ligne ; il ne crée pas encore de session native et n’active aucun runtime.
 
-## Premier démarrage à implémenter
+## Profil vide préparé
 
-1. Provisionner un profil, un répertoire de travail et un stockage de sessions/mémoire neufs. Refuser tout chemin existant, lien vers l’ancien profil ou copie de mémoire. Ne charger aucun skill personnel ou secret BMT hérité.
+Le 21 octobre 2026, le profil `ekybot-v2-pilot` a été créé dans `/Users/ekytec/.local/share/ekybot-v2/hermes/profiles/ekybot-v2-pilot`. La racine est distincte de `~/.hermes` et `~/.openclaw`, avec un nouveau dossier de travail. `MEMORY.md`, `USER.md` et `.env` sont vides ; aucun historique, skill, plugin ou secret n’est importé. `SOUL.md` contient uniquement de nouvelles instructions minimales, sans information personnelle. Les répertoires sont privés (`0700`) et les fichiers privés (`0600`).
+
+```sh
+node scripts/hermes-prepare-profile.js --plan
+node scripts/hermes-prepare-profile.js --create
+node scripts/hermes-prepare-profile.js --check
+```
+
+`--create` refuse un profil existant, même vide ou partiellement créé : aucun écrasement ou nettoyage implicite. `--check` vérifie les fichiers attendus, leurs empreintes, permissions et répertoires vides. Le statut est **`prepared-offline`**, pas « prêt à discuter ». Le marqueur `.ekybot-prepared-offline.json` et la racine personnalisée bloquent les appels du client CLI modifié avant tout lancement. Ne pas supprimer ce marqueur pour forcer l’activation. Les réglages du daemon en service ne sont pas modifiés.
+
+La création native `hermes profile create` n’est pas utilisée : dans le runtime inspecté, elle recopie par défaut le bloc modèle du profil actif et peut semer des skills. Le démarrage CLI lit aussi le `.env` du dépôt Hermes comme complément, et les profils habituels peuvent retomber sur des réglages de la racine commune. La racine distincte élimine une source d’héritage, mais l’environnement du lanceur et les credentials restent à qualifier avant activation.
+
+Un diagnostic expérimental, `scripts/hermes-profile-isolation-probe.py`, exerce uniquement les lecteurs de mémoire/contexte/skills, avec réseau, sous-processus, anciennes données et écritures interdits. Sur un profil temporaire fictif, il s’est arrêté sur un `mkdir` du répertoire de profil déjà présent. Deux essais ont été effectués puis arrêtés conformément à la règle anti-boucle du dépôt. **La qualification native n’est pas acquise.** Il faut examiner cette opération sans effet sur un dossier existant, adapter précisément le contrôle puis reprendre le diagnostic avec l’accord du propriétaire ; ne pas supprimer les interdictions globales. Le script n’a pas été exécuté sur le profil réel et ne fait pas partie de la suite Node verte.
+
+## Première session et activation à implémenter
+
+1. Recontrôler le profil préparé et terminer la qualification des lecteurs natifs. Refuser tout changement de son état vide ou chargement d’un ancien contexte.
 2. Définir de nouvelles instructions et les outils autorisés. Vérifier aussi la mémoire globale, les fichiers de contexte des dossiers parents et les variables d’environnement : un nouveau nom de profil ne prouve pas à lui seul l’isolation.
 3. Créer la première session avec une demande stable, puis enregistrer durablement l’identifiant natif retourné, le profil et le nouveau canal. Ne jamais déduire cet identifiant d’un titre, d’un préfixe ou de la session la plus récente.
 4. Si cette création s’interrompt avec un résultat incertain, suspendre et réconcilier ; ne pas lancer automatiquement une deuxième création.
 5. Activer ensuite le contrôle de continuité ci-dessous pour les messages suivants. Partir de zéro une fois ne signifie pas repartir de zéro à chaque message.
 
-Les tests hors modèle précèdent tout essai réel. Un échange consommant des tokens doit être explicitement approuvé ; aucun profil ni session réels n’ont été créés pendant cette recette.
+Les tests hors modèle précèdent tout essai réel. Un échange consommant des tokens doit être explicitement approuvé ; le profil réel est préparé mais aucune session native ni requête modèle n’a été créée pendant cette recette.
 
 ## Identités et contrôle de continuité
 
@@ -58,11 +74,14 @@ node scripts/hermes-resume-preflight.js --bindings /chemin/prive/bindings.json -
 Après qualification, l’instance pilote dédiée pourra utiliser :
 
 ```dotenv
+EKYBOT_HERMES_HOME_ROOT=/Users/ekytec/.local/share/ekybot-v2/hermes
 EKYBOT_HERMES_REQUIRE_RESUME=1
 EKYBOT_HERMES_RESUME_BINDINGS_PATH=/chemin/prive/bindings.json
 EKYBOT_HERMES_RESUME_STATE_DIR=/chemin/prive/hermes-resume
 EKYBOT_HERMES_TRANSPORT=cli
 ```
+
+Cette configuration est une cible, pas une commande d’activation utilisable immédiatement : dans cet incrément, `EKYBOT_HERMES_HOME_ROOT` est compris par les lecteurs de métadonnées mais le client CLI refuse encore toute exécution sur une racine personnalisée. Le futur lanceur devra garantir le bon dossier de travail, un environnement maîtrisé, l’absence de `.env` hérité et une sélection explicite du modèle/authentification.
 
 `REQUIRE_RESUME` interdit le retour au mode historique si le chemin d’associations manque. Un fichier absent/illisible, un canal non associé ou HTTP forcé bloque l’exécution. **Le mode concerne tous les appels Hermes de cette instance** : ne pas l’activer sur le daemon partagé sans préparer le périmètre des autres canaux. Le chemin historique non configuré reste disponible, mais ne garantit pas la continuité.
 
@@ -82,6 +101,6 @@ Ce mécanisme ne verrouille pas les clients Hermes externes, ne rend pas idempot
 node --test tests/*.test.js
 ```
 
-Au 21 octobre 2026 : **96 tests passent**, dont les validations SQLite sur bases fictives, les arguments CLI avec processus simulé, le rejeu après recréation de l’adaptateur, la concurrence de deux gardes et la mort d’un vrai sous-processus Node pendant une exécution fictive. Aucun processus Hermes ni modèle n’est appelé par les tests.
+Au 21 octobre 2026 : **105 tests Node passent**, dont les validations SQLite sur bases fictives, les arguments CLI avec processus simulé, le rejeu après recréation de l’adaptateur, la concurrence de deux gardes, la mort d’un vrai sous-processus Node pendant une exécution fictive et les protections du provisionnement. Aucun processus Hermes ni modèle n’est appelé par cette suite. Le lint ciblé passe également. Le diagnostic Python expérimental reste non validé, comme indiqué plus haut.
 
-Le connecteur actif, l’ancienne base, les secrets et les conversations n’ont pas été reconfigurés. La création du profil vide, sa première session et la livraison de bout en bout sont les prochains critères du pilote ; la récupération de l’ancien chat est abandonnée.
+Le connecteur actif, l’ancienne base, les secrets et les conversations n’ont pas été reconfigurés. Le profil vide est créé ; sa qualification native, la première session et la livraison de bout en bout restent les prochains critères du pilote. La récupération de l’ancien chat est abandonnée.

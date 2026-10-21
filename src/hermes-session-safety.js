@@ -35,8 +35,17 @@ function assertSessionId(sessionId) {
   }
 }
 
-function resolveHermesHome(profile, root = path.join(os.homedir(), '.hermes')) {
+function resolveHermesHome(
+  profile,
+  root = process.env.EKYBOT_HERMES_HOME_ROOT || path.join(os.homedir(), '.hermes')
+) {
   const name = normalizeProfile(profile);
+  if (typeof root !== 'string' || !path.isAbsolute(root) || path.normalize(root) !== root) {
+    throw safetyError(
+      'HERMES_PROFILE_INVALID_TARGET',
+      'The configured Hermes root must be an absolute canonical path.'
+    );
+  }
   return name === 'default' ? root : path.join(root, 'profiles', name);
 }
 

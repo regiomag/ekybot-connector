@@ -29,6 +29,23 @@ function subprocess({ code = 0, output = 'Fake answer', timeout = false } = {}) 
 }
 
 describe('strict Hermes CLI invocation', () => {
+  it('never starts an offline custom-root profile, even for a fresh prompt', async () => {
+    const previous = process.env.EKYBOT_HERMES_HOME_ROOT;
+    process.env.EKYBOT_HERMES_HOME_ROOT = '/synthetic/isolated/hermes';
+    const fake = subprocess();
+    try {
+      await assert.rejects(executeHermes('test', { profile: 'ekybot-v2-pilot' }, fake), {
+        code: 'HERMES_PROFILE_NOT_ACTIVATED',
+      });
+      assert.equal(fake.calls.length, 0);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.EKYBOT_HERMES_HOME_ROOT;
+      } else {
+        process.env.EKYBOT_HERMES_HOME_ROOT = previous;
+      }
+    }
+  });
   it('passes the exact native id with --resume and no cwd restoration', async () => {
     const fake = subprocess();
     const answer = await executeHermes(
