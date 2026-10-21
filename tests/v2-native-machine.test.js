@@ -24,6 +24,7 @@ function fixture(t) {
       return body.action === 'native-claim' ? { job: null } : { ok: true };
     },
     openConnection: async () => ({ rpc: { close: () => {} } }),
+    claudeStatus: async () => ({ connected: false }),
   };
   return { root, options, calls };
 }
@@ -57,6 +58,17 @@ test('a surviving worker lock never expires into an automatic restart', async (t
   });
   assert.deepEqual(await runNativeTick(f.options), { status: 'worker-locked' });
   assert.equal(f.calls.length, 0);
+});
+
+test('native worker advertises a qualified subscription Claude independently of Codex', async (t) => {
+  const f = fixture(t);
+  f.options.openConnection = async () => {
+    throw new Error('Codex unavailable');
+  };
+  f.options.claudeStatus = async () => ({ connected: true });
+  assert.deepEqual(await runNativeTick(f.options), { status: 'idle' });
+  assert.equal(f.calls[0].claude, true);
+  assert.equal(f.calls[0].codex, false);
 });
 
 test('unqualified engine or binding cannot execute and remains uncertain', async (t) => {

@@ -1,0 +1,167 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { randomUUID } = require('node:crypto');
+const { EventEmitter } = require('node:events');
+const { PassThrough, Writable } = require('node:stream');
+const {
+  ClaudeConversationRuntime,
+  claudeArguments,
+  assertInitialization,
+  transcriptPath,
+  assertClaudeContinuation,
+} = require('../src/v2-claude-runtime');
+
+test('Claude native invocation disables tools, inherited settings and API credentials', () => {
+  const id = randomUUID(),
+    args = claudeArguments({ sessionId: id, resume: true });
+  for (const flag of ['--safe-mode', '--restricted', '--strict-mcp-config', '--no-chrome']) {
+    assert.ok(args.includes(flag));
+  }
+  assert.ok(!args.includes('--bare'), 'Bare mode disables subscription authentication');
+  assert.equal(args[args.indexOf('--tools') + 1], '');
+  assert.equal(args[args.indexOf('--resume') + 1], id);
+  assert.ok(!args.includes('--dangerously-skip-permissions'));
+  assert.throws(() => claudeArguments({ sessionId: 'latest' }));
+});
+
+function fakeProcess(events, code = 0) {
+  return () => {
+    const child = new EventEmitter();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.kill = () => {
+      queueMicrotask(() => child.emit('close', null));
+    };
+    child.stdin = new Writable({
+      write(_chunk, _encoding, done) {
+        done();
+      },
+      final(done) {
+        queueMicrotask(() => {
+          for (const event of events) {
+            child.stdout.write(JSON.stringify(event) + '\n');
+          }
+          child.emit('close', code);
+        });
+        done();
+      },
+    });
+    return child;
+  };
+}
+
+test('Claude stream requires exact input acknowledgement, successful result and no tools', async () => {
+  const sessionId = randomUUID(),
+    jobId = randomUUID(),
+    cwd = '/private/tmp/fixture';
+  const init = {
+    type: 'system',
+    subtype: 'init',
+    session_id: sessionId,
+    cwd,
+    claude_code_version: '2.1.285',
+    permissionMode: 'dontAsk',
+    apiKeySource: 'none',
+    tools: [],
+    mcp_servers: [],
+    plugins: [],
+    skills: [],
+    slash_commands: [],
+  };
+  const user = { type: 'user', uuid: jobId, session_id: sessionId, message: { content: 'hello' } };
+  const result = {
+    type: 'result',
+    subtype: 'success',
+    session_id: sessionId,
+    user_message_uuid: jobId,
+    num_turns: 1,
+    is_error: false,
+    permission_denials: [],
+    result: 'hi',
+  };
+  const run = (events, code = 0) =>
+    new ClaudeConversationRuntime({
+      cwd,
+      home: '/private/tmp/fixture-home',
+      spawnImpl: fakeProcess(events, code),
+    }).run({ input: 'hello', jobId, sessionId, resume: false });
+  assert.equal(await run([init, user, result]), 'hi');
+  for (const events of [
+    [init, result],
+    [init, user],
+    [init, { ...user, uuid: randomUUID() }, result],
+    [init, user, { ...result, is_error: true }],
+    [init, user, { ...result, num_turns: 2 }],
+    [{ ...init, tools: ['Bash'] }, user, result],
+    [init, user, { type: 'control_request' }, result],
+  ]) {
+    await assert.rejects(run(events));
+  }
+  await assert.rejects(run([init, user, result], 1));
+});
+
+test('Claude effective initialization rejects inherited tools and non-subscription API source', () => {
+  const id = randomUUID(),
+    cwd = '/private/tmp/fixture';
+  const event = {
+    session_id: id,
+    cwd,
+    claude_code_version: '2.1.285',
+    permissionMode: 'dontAsk',
+    apiKeySource: 'none',
+    tools: [],
+    mcp_servers: [],
+    plugins: [],
+    skills: [],
+    slash_commands: [],
+  };
+  assert.doesNotThrow(() => assertInitialization(event, cwd, id));
+  for (const change of [
+    { tools: ['Read'] },
+    { plugins: [{ name: 'other' }] },
+    { apiKeySource: 'env' },
+    { cwd: '/elsewhere' },
+    { claude_code_version: 'changed' },
+  ]) {
+    assert.throws(() => assertInitialization({ ...event, ...change }, cwd, id));
+  }
+});
+
+test('Claude persistence is scoped to the exact project and refuses rewrites or wrong sessions', (t) => {
+  const root = fs.mkdtempSync('/private/tmp/ekybot-claude-test.');
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const cwd = path.join(root, 'workspace');
+  fs.mkdirSync(cwd, { mode: 0o700 });
+  const id = randomUUID(),
+    file = transcriptPath(root, cwd, id);
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  const rows = ['user', 'assistant'].map((type) => ({
+    type,
+    uuid: randomUUID(),
+    cwd,
+    sessionId: id,
+    isSidechain: false,
+    version: '2.1.285',
+    message: {
+      role: type,
+      content: type === 'user' ? 'hello' : [{ type: 'text', text: 'hi' }],
+      ...(type === 'assistant' ? { stop_reason: 'end_turn' } : {}),
+    },
+  }));
+  fs.writeFileSync(file, rows.map(JSON.stringify).join('\n') + '\n', { mode: 0o600 });
+  const runtime = new ClaudeConversationRuntime({ cwd, home: root });
+  const before = runtime.inspectSession({ sessionId: id });
+  fs.appendFileSync(
+    file,
+    rows.map((row) => JSON.stringify({ ...row, uuid: randomUUID() })).join('\n') + '\n'
+  );
+  const after = runtime.inspectSession({ sessionId: id });
+  assert.doesNotThrow(() => assertClaudeContinuation(before, after));
+  assert.throws(() => assertClaudeContinuation(before, { ...after, sessionId: randomUUID() }));
+  assert.throws(() =>
+    assertClaudeContinuation(before, { ...after, messages: after.messages.slice(1) })
+  );
+  assert.throws(() => runtime.inspectSession({ sessionId: randomUUID() }));
+});
