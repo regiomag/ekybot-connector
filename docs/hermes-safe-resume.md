@@ -88,6 +88,20 @@ La recette dans le navigateur intégré a reproduit puis corrigé le refus d’o
 
 ## Première session et activation à terminer
 
+### Point de contrôle du 21 octobre — workspace accepté, chat natif non qualifié
+
+La nouvelle clé a été enregistrée localement. Le propriétaire a fourni son workspace Anthropic ; il est conservé dans le même fichier privé, sans copier l’ancien environnement. `scripts/hermes-pilot-api-check.js --workspace wrkspc_…` sélectionne explicitement le workspace avant toute session, puis vérifie seulement les métadonnées du modèle. Le contrôle réel retourne **HTTP 200**, `model-metadata-verified`, pour `claude-opus-5-5`. Aucun appel Messages ni token de génération consommé. Une erreur fournisseur est classée sans exposer son corps ou les credentials ; trois nouveaux tests couvrent la sélection, les en-têtes via stdin et les refus.
+
+Le propriétaire a autorisé une courte recette réelle avec « go 1 à 4 », mais elle n’a pas encore été exécutée. Le moteur inspecté classe les clés personnelles `sk-ant-usr-…` comme OAuth : le futur pilote doit utiliser explicitement l’authentification API et l’en-tête de workspace, sans modifier Hermes actif.
+
+`scripts/hermes-pilot-native-probe.py` est un **prototype hors ligne uniquement**, qui refuse les vraies exécutions et n’accepte qu’une credential fictive fixe. Il explore `AIAgent` + `SessionDB` pour éviter le démarrage interactif du CLI ; ce choix n’est pas encore qualifié. Il prévoit zéro outil, aucun fallback/compression/titre automatique, un seul appel simulé et une persistance native. Le contrôle Python est une défense de diagnostic, pas une sandbox OS.
+
+**La recette native a échoué deux fois** sur profil jetable : le runtime renvoie `Connection error`, `completed: false`, après un appel intercepté au transport fictif. L’exception interne exacte n’est pas établie. Cela ne remet pas en cause le HTTP 200 réel des métadonnées Anthropic, mais ne prouve ni une réponse native ni sa continuité. La règle anti-boucle impose l’arrêt de cette investigation et une décision du propriétaire avant un nouvel essai. Aucun vrai profil/session, canal, worker ou déploiement n’est activé. Le test natif optionnel est ignoré si les chemins explicites de runtime/Python/paquets ne sont pas fournis ; cet état ignoré n’est pas une réussite native.
+
+Prochain diagnostic proposé : identifier l’exception masquée à la frontière SDK/transport fictif, puis seulement valider deux tours natifs et leur journal. Ne pas contourner ce blocage par un appel payant, une désactivation du journal ou un import d’ancien contexte.
+
+Suite locale après ces changements : **172 tests réussis, 1 test natif optionnel ignoré**, aucun échec dans la suite par défaut. Le test optionnel a été exécuté séparément et a échoué comme décrit ci-dessus : ne pas interpréter son exclusion comme une qualification. Lint ciblé et contrôle du diff réussis.
+
 1. Conserver le profil réel vide et bloqué. L’initialisation native sur profil jetable est qualifiée, mais ne constitue pas une autorisation de lancer le CLI de chat. Qualifier son authentification et la capture explicite de l’identifiant de session.
 2. Définir de nouvelles instructions et les outils autorisés. Vérifier aussi la mémoire globale, les fichiers de contexte des dossiers parents et les variables d’environnement : un nouveau nom de profil ne prouve pas à lui seul l’isolation.
 3. Créer la première session avec une demande stable, puis enregistrer durablement l’identifiant natif retourné, le profil et le nouveau canal. Ne jamais déduire cet identifiant d’un titre, d’un préfixe ou de la session la plus récente.

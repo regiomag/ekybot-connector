@@ -31,3 +31,14 @@ function buildPilotRouting({ root, profile, reasoningEffort = 'medium' } = {}) {
 }
 
 module.exports = { buildPilotRouting, PRIMARY };
+
+// Explicit execution limits for the initial chat-only qualification. This is
+// separate from inactive credential enrollment; neither function activates it.
+function buildPilotExecutionConfig(options = {}) {
+  const { config } = buildPilotRouting(options);
+  config.agent.api_max_retries = 1;
+  config.compression = { enabled: false };
+  config.auxiliary = { title_generation: { enabled: false } };
+  return config;
+}
+module.exports.buildPilotExecutionConfig = buildPilotExecutionConfig;
