@@ -278,6 +278,7 @@ def execute(request):
         save_trajectories=False, verbose_logging=False, session_db=db,
         session_id=session_id, platform="cli", skip_context_files=True,
         load_soul_identity=True, skip_background_review=True, checkpoints_enabled=False,
+        ephemeral_system_prompt=(Path(__file__).resolve().parent.parent / "src/bmt-system-prompt.txt").read_text() if bmt_enabled else None,
         fallback_model={"provider": "anthropic", "model": "claude-opus-5-5",
                         "base_url": "https://api.anthropic.com", "api_key": fallback_credential["apiKey"]}
                         if provider == "openai-codex" and request.get("allowFallback") is True else None,

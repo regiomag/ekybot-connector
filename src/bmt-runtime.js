@@ -15,6 +15,7 @@ const {
 } = require('./v2-codex-runtime');
 const { ClaudeConversationRuntime, assertClaudeContinuation } = require('./v2-claude-runtime');
 const { hash } = require('./bmt-broker');
+const { policy } = require('./bmt-policy');
 
 // The native adapters remain tool-free. All business effects belong to the
 // application broker; no MCP process, shell, browser or API key is given to a model.
@@ -77,6 +78,7 @@ async function openBmtRuntime({ stateDir, chatId, agent, hermesSource = {}, home
           ...(connection = await openCodexChatConnection({ cwd: root, home })),
           cwd: root,
           effort: 'low',
+          instructions: policy,
         });
   const journal = new DurableConversationJournal({
     stateDir: path.join(root, 'journal'),
