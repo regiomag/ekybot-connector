@@ -26,7 +26,7 @@ test('Claude native invocation disables tools, inherited settings and API creden
   assert.throws(() => claudeArguments({ sessionId: 'latest' }));
 });
 
-function fakeProcess(events, code = 0) {
+function fakeProcess(events, code = 0, splitBytes = false) {
   return () => {
     const child = new EventEmitter();
     child.stdout = new PassThrough();
@@ -41,7 +41,14 @@ function fakeProcess(events, code = 0) {
       final(done) {
         queueMicrotask(() => {
           for (const event of events) {
-            child.stdout.write(JSON.stringify(event) + '\n');
+            const line = Buffer.from(JSON.stringify(event) + '\n');
+            if (splitBytes) {
+              for (const byte of line) {
+                child.stdout.write(Buffer.from([byte]));
+              }
+            } else {
+              child.stdout.write(line);
+            }
           }
           child.emit('close', code);
         });
@@ -70,7 +77,8 @@ test('Claude stream requires exact input acknowledgement, successful result and 
     skills: [],
     slash_commands: [],
   };
-  const user = { type: 'user', uuid: jobId, session_id: sessionId, message: { content: 'hello' } };
+  const input = 'Bonjour éà漢😀';
+  const user = { type: 'user', uuid: jobId, session_id: sessionId, message: { content: input } };
   const result = {
     type: 'result',
     subtype: 'success',
@@ -81,13 +89,18 @@ test('Claude stream requires exact input acknowledgement, successful result and 
     permission_denials: [],
     result: 'hi',
   };
-  const run = (events, code = 0) =>
+  const run = (events, code = 0, splitBytes = false) =>
     new ClaudeConversationRuntime({
       cwd,
       home: '/private/tmp/fixture-home',
-      spawnImpl: fakeProcess(events, code),
-    }).run({ input: 'hello', jobId, sessionId, resume: false });
+      spawnImpl: fakeProcess(events, code, splitBytes),
+    }).run({ input, jobId, sessionId, resume: false });
   assert.equal(await run([init, user, result]), 'hi');
+  assert.equal(
+    await run([init, user, result], 0, true),
+    'hi',
+    'UTF-8 split across arbitrary pipe chunks preserves the exact acknowledgement'
+  );
   for (const events of [
     [init, result],
     [init, user],

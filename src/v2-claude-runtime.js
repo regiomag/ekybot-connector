@@ -312,8 +312,10 @@ class ClaudeConversationRuntime {
           stop();
         }
       });
+      // Preserve UTF-8 characters when a CLI acknowledgement spans pipe chunks.
+      child.stdout.setEncoding('utf8');
       child.stdout.on('data', (chunk) => {
-        bytes += chunk.length;
+        bytes += Buffer.byteLength(chunk);
         buffer += chunk;
         if (bytes > 1024 * 1024) {
           stop();

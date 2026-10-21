@@ -46,6 +46,19 @@ test('server approval requests cannot silently grant permissions', () => {
   assert.equal(events[0].method, 'ekybot/approvalRequired');
   rpc.close();
 });
+test('stdio RPC preserves UTF-8 even when every byte arrives separately', async () => {
+  const { child, rpc } = fixture();
+  try {
+    const pending = rpc.request('read');
+    const result = { text: 'Société Démo éà漢😀' };
+    for (const byte of Buffer.from(JSON.stringify({ id: 1, result }) + '\n')) {
+      child.stdout.write(Buffer.from([byte]));
+    }
+    assert.deepEqual(await pending, result);
+  } finally {
+    rpc.close();
+  }
+});
 test('broken transport rejects pending calls and closes idempotently', async () => {
   const { child, rpc } = fixture();
   const pending = rpc.request('read');

@@ -22,6 +22,7 @@ class JsonRpcProcess {
     this.child.stdin.on('error', () => this.close());
     this.child.stderr.resume();
     let buffer = '';
+    this.child.stdout.setEncoding('utf8');
     this.child.stdout.on('data', (chunk) => {
       buffer += chunk.toString();
       if (Buffer.byteLength(buffer) > 2 * 1024 * 1024) {
