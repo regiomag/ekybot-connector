@@ -269,4 +269,7 @@ module.exports = {
   PREPARED_MARKER,
   DEFAULT_ROOT,
   DEFAULT_PROFILE,
+  assertNoSymlinkChain,
+  assertPrivate,
+  writeNew,
 };

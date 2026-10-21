@@ -2,20 +2,15 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { buildPilotRouting } = require('../src/hermes-pilot-routing');
 
-test('pilot keeps the requested exact models and different billing routes', () => {
-  const plan = buildPilotRouting({ reasoningEffort: 'max' });
-  assert.deepEqual(plan.config.model, { provider: 'openai-codex', default: 'gpt-5.6-sol' });
-  assert.deepEqual(plan.config.fallback_providers, [
-    {
-      provider: 'anthropic',
-      model: 'claude-opus-5-5',
-      key_env: 'ANTHROPIC_API_KEY',
-    },
-  ]);
-  assert.equal(plan.config.agent.reasoning_effort, 'max');
+test('pilot uses only Claude API after cancellation of OpenAI enrollment', () => {
+  const plan = buildPilotRouting();
+  assert.deepEqual(plan.config.model, { provider: 'anthropic', default: 'claude-opus-5-5' });
+  assert.deepEqual(plan.config.fallback_providers, []);
+  assert.equal(plan.config.agent.reasoning_effort, 'medium');
   assert.equal(plan.activationRequired, true);
-  assert.equal(plan.fallback.metered, true);
-  assert.equal(plan.primary.authentication, 'independent-chatgpt-login');
+  assert.equal(plan.fallback, null);
+  assert.equal(plan.primary.metered, true);
+  assert.equal(plan.primary.authentication, 'api-key');
 });
 
 test('routing retains the fresh profile restrictions and never grants tools', () => {
@@ -31,13 +26,13 @@ test('routing retains the fresh profile restrictions and never grants tools', ()
 
 test('routing has no shared mutable provider chain', () => {
   const first = buildPilotRouting({ reasoningEffort: 'max' });
-  first.config.fallback_providers[0].model = 'other';
+  first.config.fallback_providers.push({ provider: 'other', model: 'other' });
   const second = buildPilotRouting({ reasoningEffort: 'max' });
-  assert.equal(second.config.fallback_providers[0].model, 'claude-opus-5-5');
+  assert.deepEqual(second.config.fallback_providers, []);
 });
 
-test('routing requires an explicit supported reasoning setting', () => {
-  for (const reasoningEffort of [undefined, 'auto', 'ultra', 'none']) {
+test('routing rejects unsupported reasoning settings', () => {
+  for (const reasoningEffort of ['auto', 'ultra', 'none']) {
     assert.throws(() => buildPilotRouting({ reasoningEffort }), {
       code: 'PILOT_REASONING_REQUIRED',
     });
