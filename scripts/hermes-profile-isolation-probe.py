@@ -7,13 +7,16 @@ Neither mode starts the chat CLI, authenticates, or creates a session.
 The audit hook is a diagnostic tripwire, not an OS security sandbox.
 """
 import argparse
-import hashlib
 import json
 import os
 from pathlib import Path
-import stat
 import sys
-import tempfile
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from hermes_bootstrap_policy import (
+    validate_disposable_fixture, profile_snapshot,
+    assert_bootstrap_changes, bootstrap_directory_event_allowed,
+)
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--runtime', required=True)
@@ -29,36 +32,16 @@ assert os.environ.get('HERMES_HOME') == str(home), 'Pin the profile before impor
 assert (home / '.ekybot-prepared-offline.json').is_file()
 assert not any(key.endswith(('_TOKEN', '_SECRET', '_API_KEY')) for key in os.environ), 'Use a credential-free environment'
 bootstrap = args.bootstrap_fixture is not None
-bootstrap_dirs = {home / name for name in (
-    '', 'cron', 'sessions', 'logs', 'logs/curator', 'memories',
-    'pairing', 'hooks', 'image_cache', 'audio_cache', 'skills',
-)}
 before = {}
-
-
-def snapshot():
-    result = {}
-    for item in sorted(home.rglob('*')):
-        info = item.lstat()
-        assert not item.is_symlink(), 'No profile symlinks allowed'
-        assert info.st_uid == os.getuid() and not (info.st_mode & 0o077)
-        result[str(item.relative_to(home))] = {
-            'mode': stat.S_IMODE(info.st_mode),
-            'hash': hashlib.sha256(item.read_bytes()).hexdigest() if item.is_file() else None,
-        }
-    return result
 
 
 if bootstrap:
     fixture = Path(args.bootstrap_fixture).resolve(strict=True)
-    assert fixture.parent in {Path('/private/tmp'), Path(tempfile.gettempdir()).resolve()}
-    assert fixture.name.startswith('ekybot-hermes-bootstrap.')
-    assert root == fixture / 'hermes' and runtime == fixture / 'runtime'
-    assert home == root / 'profiles' / 'ekybot-v2-pilot'
-    assert not (fixture.stat().st_mode & 0o077) and fixture.stat().st_uid == os.getuid()
+    validate_disposable_fixture(fixture, root, home, 'ekybot-hermes-bootstrap.')
+    assert runtime == fixture / 'runtime'
     assert not (runtime / '.env').exists() and not (runtime / '.env').is_symlink(), 'Use a clean source export, never the live checkout'
     assert (home / '.env').stat().st_size == 0, 'Fixture dotenv must be empty'
-    before = snapshot()
+    before = profile_snapshot(home)
     os.umask(0o077)
 workspace = home / 'workspace'
 os.chdir(workspace)
@@ -82,7 +65,7 @@ def audit(event, values):
         reject(event)
     if event == 'os.chmod':
         target = Path(os.fsdecode(values[0])).absolute() if isinstance(values[0], (str, bytes, os.PathLike)) else None
-        if not bootstrap or target not in bootstrap_dirs or target.is_symlink() or values[1] != 0o700:
+        if not bootstrap or not bootstrap_directory_event_allowed(event, values, home):
             reject(event)
         directory_operations.add(str(target.relative_to(home)) or '.')
     if event in {'os.rename', 'os.remove', 'os.rmdir', 'os.symlink', 'os.link', 'os.chown', 'os.truncate', 'os.utime'}:
@@ -91,7 +74,7 @@ def audit(event, values):
         # Only MemoryStore's existing directory is admissible. Native home
         # bootstrap is not a reader and must remain blocked by this probe.
         target = Path(os.fsdecode(values[0])).absolute()
-        allowed = target in bootstrap_dirs if bootstrap else target == home / 'memories' and target.is_dir()
+        allowed = bootstrap_directory_event_allowed(event, values, home) if bootstrap else target == home / 'memories' and target.is_dir()
         if not allowed or target.is_symlink():
             reject(f'{event}:{target}')
         directory_operations.add(str(target.relative_to(home)) or '.')
@@ -150,10 +133,8 @@ assert not denied, 'An imported reader attempted a blocked side effect'
 
 created_dirs = []
 if bootstrap:
-    after = snapshot()
-    assert all(after.get(name) == value for name, value in before.items()), 'Existing profile contents changed'
-    created_dirs = sorted(set(after) - set(before))
-    assert all(home / name in bootstrap_dirs and after[name] == {'mode': 0o700, 'hash': None} for name in created_dirs)
+    after = profile_snapshot(home)
+    created_dirs = assert_bootstrap_changes(before, after, home)
     assert not (home / 'state.db').exists(), 'No native session may be created'
 
 print(json.dumps({

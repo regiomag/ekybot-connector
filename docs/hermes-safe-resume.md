@@ -48,7 +48,27 @@ Le résultat attendu est `status: passed`, avec `soulLoaderTested`, `nativeBoots
 
 Dix tests supplémentaires passent avec un exécuteur fictif : création/reprise, conflit de contenu, concurrence, arrêt réel du processus pendant la première création, publication rejouable et révocation d’association. Ce module ne lance pas encore Hermes : le lanceur natif et le service machine restent à intégrer.
 
-`scripts/hermes-pilot-auth.py` prépare une authentification indépendante, depuis l’export propre du runtime audité, sans import des identifiants Codex globaux. Le mode `--login` est volontairement bloqué. Sa qualification native sans réseau s’est arrêtée deux fois : une variable d’encodage ajoutée par macOS, désormais admise, puis une tentative `os.mkdir` pendant l’import natif. Le contrôle a interrompu l’opération avant écriture. Selon la règle anti-boucle, aucune troisième exécution n’a lieu sans intervention du propriétaire. Le prochain diagnostic doit préciser la cible et qualifier uniquement les écritures nécessaires dans un profil jetable, sans élargissement général des droits.
+`scripts/hermes-pilot-auth.py` qualifie uniquement l’import natif du module d’authentification, hors ligne et depuis l’export propre du runtime audité. Après autorisation du propriétaire, le diagnostic sur profil jetable a identifié la cause du précédent arrêt : l’import charge la configuration des fournisseurs/plugins, qui appelle `ensure_hermes_home()`. Le premier `os.mkdir` vise le dossier du profil déjà présent, pas l’ancien environnement. La variable d’encodage ajoutée par macOS est également admise dans l’environnement minimal.
+
+La recette native passe désormais avec `--bootstrap-fixture` : seuls `audio_cache`, `hooks`, `image_cache`, `logs/curator` et `pairing` sont ajoutés au profil jetable, en permissions privées. Les fichiers existants, leurs empreintes et leurs permissions restent inchangés ; les mémoires restent vides. Le diagnostic et celui des lecteurs partagent une seule politique de dossiers autorisés dans `scripts/hermes_bootstrap_policy.py`. Toute écriture de fichier, tout accès réseau ou sous-processus reste bloqué ; ce contrôle Python est un détecteur, pas une sandbox OS.
+
+Quatorze nouveaux tests vérifient notamment les refus d’écriture d’identifiants/session, de dossier hors liste, de permissions élargies, de lecture d’anciens secrets et d’environnement contenant une clé API. `--login` est toujours refusé : cette recette ne teste ni la connexion fournisseur ni le chat réel, et ne crée aucun identifiant.
+
+Commande utilisée sur le profil jetable neuf, préparé séparément par le provisionneur :
+
+```sh
+env -i PATH=/usr/bin:/bin \
+  HERMES_HOME=/private/tmp/ekybot-hermes-auth.hMIXoV/hermes/profiles/ekybot-v2-pilot \
+  /Users/ekytec/.openclaw/hermes-agent/.venv/bin/python -I -B -S \
+  scripts/hermes-pilot-auth.py \
+  --runtime /private/tmp/ekybot-hermes-bootstrap.zgc4On/runtime \
+  --profile-home /private/tmp/ekybot-hermes-auth.hMIXoV/hermes/profiles/ekybot-v2-pilot \
+  --site-packages /Users/ekytec/.openclaw/hermes-agent/.venv/lib/python3.11/site-packages \
+  --bootstrap-fixture /private/tmp/ekybot-hermes-auth.hMIXoV \
+  --trace-blocked
+```
+
+Résultat observé : `native-auth-import-passed`, `existingProfileFilesUnchanged: true`, `providerAuthenticationTested: false`, `loginEnabled: false`, `modelInvoked: false`. Les chemins temporaires ci-dessus documentent cette exécution ; pour la reproduire, préparer un nouveau profil jetable privé, sans réutiliser le profil réel ni élargir la liste des dossiers autorisés.
 
 Le profil réel passe toujours `hermes-prepare-profile.js --check` : fichiers inchangés, mémoires vides, aucune session ni authentification créée. Aucune requête modèle ou connexion fournisseur n’a été lancée.
 
@@ -133,6 +153,6 @@ Ce mécanisme ne verrouille pas les clients Hermes externes, ne rend pas idempot
 node --test tests/*.test.js
 ```
 
-Au 21 octobre 2026 : **125 tests Node passent**, dont les validations SQLite sur bases fictives, les arguments CLI avec processus simulé, le rejeu après recréation de l’adaptateur, la concurrence de deux gardes, la mort d’un vrai sous-processus Node pendant une exécution fictive, les protections du provisionnement et les 20 tests du diagnostic Python. Ces derniers nécessitent Python 3 (`EKYBOT_PROBE_PYTHON` permet de choisir l’interpréteur) et utilisent des modules Hermes fictifs. Aucun runtime Hermes ni modèle n’est appelé par cette suite. Le lint ciblé passe également. Les recettes natives des lecteurs et du bootstrap jetable passent séparément, avec les limites précisées plus haut.
+Au 21 octobre 2026 : **149 tests Node passent**, dont les validations SQLite sur bases fictives, les arguments CLI avec processus simulé, le rejeu après recréation de l’adaptateur, la concurrence de deux gardes, la mort d’un vrai sous-processus Node pendant une exécution fictive, les protections du provisionnement, les dix tests du journal V2, les 20 tests du diagnostic des lecteurs/bootstrap et les 14 tests du diagnostic d’import d’authentification. Les tests Python nécessitent Python 3 (`EKYBOT_PROBE_PYTHON` permet de choisir l’interpréteur) et utilisent des modules Hermes fictifs. Aucun runtime Hermes ni modèle n’est appelé par cette suite. Le lint ciblé passe également. Les recettes natives des lecteurs, du bootstrap jetable et de l’import d’authentification passent séparément, avec les limites précisées plus haut.
 
 Le connecteur actif, l’ancienne base, les secrets et les conversations n’ont pas été reconfigurés. Le profil vide et ses lecteurs sont vérifiés ; l’initialisation complète, la première session et la livraison de bout en bout restent les prochains critères du pilote. La récupération de l’ancien chat est abandonnée.

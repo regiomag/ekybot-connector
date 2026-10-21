@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Fresh, profile-owned device login only. Does not start a chat or choose a model.
+"""Qualify native Hermes auth-module import offline. Device login is disabled.
 
 Run with Python -I -B -S and a credential-free environment. The native Hermes
 auth module comes from the audited clean export; site .pth files are not run.
-This audit hook detects accidental inheritance, not malicious native extensions.
+--bootstrap-fixture admits only known directory initialization in a disposable
+profile. No credentials, session, model or file writes are allowed. This audit
+hook detects accidental inheritance, not malicious native extensions.
 """
 import argparse
 import hashlib
@@ -11,6 +13,13 @@ import json
 import os
 from pathlib import Path
 import sys
+import traceback
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from hermes_bootstrap_policy import (
+    validate_disposable_fixture, bootstrap_directory_event_allowed,
+    profile_snapshot, assert_bootstrap_changes,
+)
 
 HASHES = {
     'hermes_cli/auth.py': '9c8bb752f79abebf918c669e298c301920267dfaace7f0b65434c92ae08292d7',
@@ -24,9 +33,11 @@ def main():
     parser.add_argument('--profile-home', required=True)
     parser.add_argument('--site-packages', required=True)
     parser.add_argument('--login', action='store_true')
+    parser.add_argument('--trace-blocked', action='store_true', help='Print source locations only for a denied side effect')
+    parser.add_argument('--bootstrap-fixture', help='Allow only known native directory initialization inside this disposable fixture')
     args = parser.parse_args()
     if args.login:
-        raise SystemExit('Enrollment inactive: the native read-only bootstrap must be qualified before enabling device login.')
+        raise SystemExit('Enrollment inactive: this offline diagnostic cannot authenticate a provider.')
     assert sys.flags.isolated and sys.flags.no_site and sys.dont_write_bytecode, 'Use -I -B -S'
     runtime, profile, packages = [Path(value).resolve(strict=True) for value in (args.runtime, args.profile_home, args.site_packages)]
     assert os.environ.get('HERMES_HOME') == str(profile), 'Pin HERMES_HOME explicitly'
@@ -47,6 +58,12 @@ def main():
     for relative in ['.env', 'memories/MEMORY.md', 'memories/USER.md']:
         assert (profile / relative).stat().st_size == 0, 'No inherited credentials or memory'
     assert not (profile / 'auth.json').exists(), 'Existing authentication is never overwritten by this enrollment'
+    before = None
+    directory_operations = set()
+    if args.bootstrap_fixture:
+        fixture = Path(args.bootstrap_fixture).resolve(strict=True)
+        validate_disposable_fixture(fixture, profile.parent.parent, profile, 'ekybot-hermes-auth.')
+        before = profile_snapshot(profile)
     os.umask(0o077)
     os.chdir(profile / 'workspace')
     sys.path[:0] = [str(runtime), str(packages)]
@@ -54,18 +71,19 @@ def main():
 
     def reject(event):
         denied.append(event)
+        if args.trace_blocked:
+            frames = [{'file': frame.f_code.co_filename, 'line': line, 'function': frame.f_code.co_name}
+                      for frame, line in traceback.walk_stack(None)]
+            print(json.dumps({'blocked': event, 'frames': frames[:16]}), file=sys.stderr)
         raise SystemExit('Fresh Hermes authentication blocked an unexpected side effect: ' + event)
 
     def path_value(value):
         return Path(os.fsdecode(value)).resolve() if isinstance(value, (str, bytes, os.PathLike)) else None
 
-    def writable(target):
-        return target is not None and target.parent == profile and (target.name in {'auth.json', 'auth.lock'} or target.name.startswith('auth.json.tmp.'))
-
     def audit(event, values):
         if event in {'subprocess.Popen', 'os.system', 'os.posix_spawn', 'os.exec', 'os.fork'}:
             reject(event)
-        if event.startswith('socket.') and not args.login:
+        if event.startswith('socket.'):
             reject('network_in_check')
         if event == 'open':
             target = path_value(values[0])
@@ -73,22 +91,21 @@ def main():
                 return
             mode, flags = values[1], values[2]
             writing = isinstance(mode, str) and any(c in mode for c in 'wax+') or isinstance(flags, int) and flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND)
-            if writing and (not args.login or not writable(target)):
+            if writing:
                 reject('unexpected_write')
             if target.is_relative_to(packages):
                 return
             if target.is_relative_to(profile):
                 return
-            if any(part in target.parts for part in ('.hermes', '.codex', 'workspace-main')) or (target.is_relative_to(Path.home() / '.openclaw')) or target.name in {'.env', '.op.env', 'auth.json'}:
+            if any(part in target.parts for part in ('.hermes', '.codex', 'workspace-main')) or target.is_relative_to(Path.home() / '.openclaw') or target.is_relative_to(Path('/etc/hermes').resolve()) or target.name in {'.env', '.op.env', 'auth.json'}:
                 reject('legacy_or_secret_read')
         if event in {'os.mkdir', 'os.chmod'}:
             target = path_value(values[0])
-            if not args.login or not (target == profile or writable(target)):
-                reject(f'{event}:{target}')
-        if event in {'os.rename', 'os.remove'}:
-            if not args.login or not writable(path_value(values[0])) or (event == 'os.rename' and not writable(path_value(values[1]))):
-                reject(event)
-        if event in {'os.rmdir', 'os.symlink', 'os.link', 'os.chown', 'os.truncate'}:
+            if before is not None and bootstrap_directory_event_allowed(event, values, profile):
+                directory_operations.add(str(target.relative_to(profile)) or '.')
+                return
+            reject(f'{event}:{target}')
+        if event in {'os.rename', 'os.remove', 'os.rmdir', 'os.symlink', 'os.link', 'os.chown', 'os.truncate'}:
             reject(event)
 
     sys.addaudithook(audit)
@@ -97,16 +114,14 @@ def main():
     assert get_hermes_home() == profile and get_default_hermes_root() == profile.parent.parent
     assert auth._auth_file_path() == profile / 'auth.json'
     assert not denied
-    if not args.login:
-        print(json.dumps({'status': 'ready-for-device-login', 'modelInvoked': False, 'credentialsCopied': False}))
-        return
-    # Deliberately bypass helpers that propose importing ~/.codex/auth.json or
-    # mutate model configuration. Only native fresh OAuth + native atomic save.
-    creds = auth._codex_device_code_login()
-    auth._save_codex_tokens(creds['tokens'], creds.get('last_refresh'))
-    assert not denied and (profile / 'auth.json').stat().st_mode & 0o777 == 0o600
-    assert not (profile / 'state.db').exists()
-    print('Hermes V2 authentication saved privately. No chat started; profile remains inactive.')
+    created = assert_bootstrap_changes(before, profile_snapshot(profile), profile) if before is not None else []
+    print(json.dumps({
+        'status': 'native-auth-import-passed', 'scope': 'offline-auth-module-import',
+        'modelInvoked': False, 'credentialsCopied': False, 'providerAuthenticationTested': False,
+        'loginEnabled': False, 'createdDirectories': created,
+        'directoryOperations': sorted(directory_operations),
+        'existingProfileFilesUnchanged': True if before is not None else None,
+    }))
 
 
 if __name__ == '__main__':
