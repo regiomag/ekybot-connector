@@ -46,9 +46,13 @@ function configurePilotProfile(options = {}) {
     assertPrivate(file, false);
     const actual = fs.readFileSync(file, 'utf8');
     if (relative === 'config.yaml') {
+      const accepted = [
+        routing.config,
+        buildPilotRouting({ ...options, routingMode: 'claude-only' }).config,
+      ];
       if (
         actual !== expected &&
-        JSON.stringify(JSON.parse(actual)) !== JSON.stringify(routing.config)
+        !accepted.some((config) => JSON.stringify(JSON.parse(actual)) === JSON.stringify(config))
       ) {
         throw fail();
       }
@@ -56,10 +60,27 @@ function configurePilotProfile(options = {}) {
       throw fail();
     }
   }
-  if (
-    fs.existsSync(path.join(initial.home, 'state.db')) ||
-    fs.existsSync(path.join(initial.home, 'auth.json'))
-  ) {
+  if (fs.existsSync(path.join(initial.home, 'state.db'))) {
+    throw fail();
+  }
+  const authPath = path.join(initial.home, 'auth.json');
+  if (routing.routingMode === 'openai-primary') {
+    // A new, independently enrolled account must exist before changing the
+    // inactive route. Never import or repair credentials from global Codex.
+    const auth = readPrivateJson(authPath);
+    const provider = auth?.providers?.['openai-codex'];
+    if (
+      provider?.auth_mode !== 'chatgpt' ||
+      !['access_token', 'refresh_token'].every(
+        (name) => typeof provider.tokens?.[name] === 'string' && provider.tokens[name]
+      )
+    ) {
+      throw fail();
+    }
+    if (!readAnthropicCredential(options).workspaceId) {
+      throw fail();
+    }
+  } else if (fs.existsSync(authPath)) {
     throw fail();
   }
   for (const name of ['sessions', 'skills', 'plugins', 'workspace']) {
@@ -70,13 +91,22 @@ function configurePilotProfile(options = {}) {
     }
   }
   writeDurableJson(path.join(initial.home, 'config.yaml'), routing.config);
+  if (routing.routingMode === 'openai-primary') {
+    writeDurableJson(path.join(initial.home, '.ekybot-provider-policy.json'), {
+      version: 1,
+      primary: routing.primary,
+      fallback: routing.fallback,
+      fallbackPolicy: routing.fallbackPolicy,
+      executionAllowed: false,
+    });
+  }
   return {
     status: 'configured-inactive',
     profile: initial.profile,
     home: initial.home,
     model: routing.primary.model,
     provider: routing.primary.provider,
-    fallback: null,
+    fallback: routing.fallback,
     executionAllowed: false,
     modelInvoked: false,
   };

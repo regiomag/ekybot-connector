@@ -3,13 +3,48 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const { createFreshProfile, PREPARED_MARKER } = require('../src/hermes-fresh-profile');
+const { writeDurableJson } = require('../src/hermes-resume-guard');
 const {
   configurePilotProfile,
   importAnthropicKey,
   installAnthropicKey,
   isAnthropicApiKey,
   KEY_FILE,
+  selectAnthropicWorkspace,
 } = require('../src/hermes-pilot-profile');
+
+test('OpenAI priority requires independent authentication and preserves the Claude key and fresh memory', (t) => {
+  const { options, profile } = fixture(t);
+  const key = 'sk-ant-usr-synthetic-key-for-tests-only-123456';
+  installAnthropicKey(key, options);
+  selectAnthropicWorkspace('wrkspc_fixture12345', options);
+  const keyBefore = fs.readFileSync(path.join(profile.home, KEY_FILE), 'utf8');
+  assert.throws(() => configurePilotProfile({ ...options, routingMode: 'openai-primary' }));
+  writeDurableJson(path.join(profile.home, 'auth.json'), {
+    providers: {
+      'openai-codex': {
+        auth_mode: 'chatgpt',
+        tokens: { access_token: 'FAKE_ACCESS', refresh_token: 'FAKE_REFRESH' },
+      },
+    },
+  });
+  for (let i = 0; i < 2; i++) {
+    const result = configurePilotProfile({ ...options, routingMode: 'openai-primary' });
+    assert.equal(result.model, 'gpt-5.6-sol');
+    assert.equal(result.provider, 'openai-codex');
+    assert.equal(result.fallback.model, 'claude-opus-5-5');
+    assert.equal(result.executionAllowed, false);
+  }
+  assert.equal(fs.readFileSync(path.join(profile.home, KEY_FILE), 'utf8'), keyBefore);
+  assert.equal(fs.statSync(path.join(profile.home, 'memories/MEMORY.md')).size, 0);
+  const policy = JSON.parse(
+    fs.readFileSync(path.join(profile.home, '.ekybot-provider-policy.json'))
+  );
+  assert.equal(policy.fallbackPolicy, 'verified-rejection-only');
+  assert.equal(policy.executionAllowed, false);
+  assert.equal(JSON.stringify(policy).includes('FAKE_ACCESS'), false);
+  assert.throws(() => configurePilotProfile(options));
+});
 function fixture(t) {
   const directory = fs.mkdtempSync('/private/tmp/ekybot-pilot-config.');
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));

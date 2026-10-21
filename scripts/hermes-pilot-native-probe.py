@@ -73,6 +73,20 @@ def execute(request):
     auth._is_oauth_token = lambda token: False if token == credential["apiKey"] else native_classifier(token)
     adapter._is_oauth_token = auth._is_oauth_token
     calls = []
+    transport_errors = []
+
+    class DiagnosticClient(httpx.Client):
+        def send(self, *args, **kwargs):
+            try:
+                return super().send(*args, **kwargs)
+            except Exception as error:
+                # This probe rejects live credentials before importing the SDK.
+                # Record the underlying fake-transport exception rather than
+                # diagnosing the SDK's generic "Connection error" repeatedly.
+                import traceback
+                transport_errors.append({"type": type(error).__name__, "message": str(error),
+                    "locations": [f"{Path(f.filename).name}:{f.lineno}" for f in traceback.extract_tb(error.__traceback__)[-5:]]})
+                raise
 
     def request_guard(http_request):
         if str(http_request.url).split("?", 1)[0] != "https://api.anthropic.com/v1/messages" or http_request.method != "POST":
@@ -84,12 +98,26 @@ def execute(request):
 
     def fixture_response(http_request):
         body = json.loads(http_request.content)
-        return httpx.Response(200, json={
+        message = {
             "id": "msg_offline", "type": "message", "role": "assistant",
             "model": "claude-opus-5-5", "content": [{"type": "text", "text": "OFFLINE_NATIVE_OK"}],
             "stop_reason": "end_turn", "stop_sequence": None,
             "usage": {"input_tokens": 1, "output_tokens": 1},
-        })
+        }
+        if not body.get("stream"):
+            return httpx.Response(200, json=message)
+        # The native adapter uses Messages streaming. A plain JSON response
+        # has no SSE events and correctly triggers its empty-stream handling.
+        events = [
+            {"type": "message_start", "message": {**message, "content": [], "stop_reason": None}},
+            {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}},
+            {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "OFFLINE_NATIVE_OK"}},
+            {"type": "content_block_stop", "index": 0},
+            {"type": "message_delta", "delta": {"stop_reason": "end_turn", "stop_sequence": None}, "usage": {"output_tokens": 1}},
+            {"type": "message_stop"},
+        ]
+        content = "".join(f"event: {event['type']}\ndata: {json.dumps(event)}\n\n" for event in events)
+        return httpx.Response(200, text=content, headers={"Content-Type": "text/event-stream"})
 
     def api_client(api_key, base_url=None, timeout=None, **kwargs):
         if api_key != credential["apiKey"] or base_url not in (None, "https://api.anthropic.com", "https://api.anthropic.com/"):
@@ -98,7 +126,7 @@ def execute(request):
         return anthropic.Anthropic(
             api_key=api_key, base_url="https://api.anthropic.com", max_retries=0,
             timeout=45, default_headers={"anthropic-workspace-id": credential["workspaceId"]},
-            http_client=httpx.Client(transport=transport, timeout=45, trust_env=False, follow_redirects=False, event_hooks={"request": [request_guard]}),
+            http_client=DiagnosticClient(transport=transport, timeout=45, trust_env=False, follow_redirects=False, event_hooks={"request": [request_guard]}),
         )
 
     adapter.build_anthropic_client = api_client
@@ -127,7 +155,7 @@ def execute(request):
     output = result.get("final_response")
     if result.get("failed") or result.get("partial") or not isinstance(output, str) or not output.strip() or len(calls) != 1:
         if offline:
-            print(json.dumps({"fixtureResult": result, "calls": len(calls)}), file=sys.__stdout__)
+            print(json.dumps({"fixtureResult": result, "calls": len(calls), "transportErrors": transport_errors}), file=sys.__stdout__)
         raise ValueError("Unverified native completion")
     return {"sessionId": agent.session_id, "output": output, "modelRequests": len(calls), "offline": offline,
             "inputMessageCount": len(calls[0].get("messages", []))}

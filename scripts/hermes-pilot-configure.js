@@ -5,10 +5,14 @@ try {
   let result;
   if (args.length === 1 && args[0] === '--configure') {
     result = configurePilotProfile();
+  } else if (args.length === 1 && args[0] === '--openai-primary') {
+    result = configurePilotProfile({ routingMode: 'openai-primary' });
   } else if (args.length === 2 && args[0] === '--import-anthropic-key') {
     result = importAnthropicKey(args[1]);
   } else {
-    throw new Error('Use --configure or --import-anthropic-key /absolute/authorized/source.env.');
+    throw new Error(
+      'Use --configure, --openai-primary or --import-anthropic-key /absolute/authorized/source.env.'
+    );
   }
   console.log(JSON.stringify(result));
 } catch (error) {

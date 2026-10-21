@@ -7,14 +7,24 @@ const PRIMARY = Object.freeze({
   model: 'claude-opus-5-5',
   key_env: 'ANTHROPIC_API_KEY',
 });
+const OPENAI_PRIMARY = Object.freeze({ provider: 'openai-codex', model: 'gpt-5.6-sol' });
 
-function buildPilotRouting({ root, profile, reasoningEffort = 'medium' } = {}) {
+function buildPilotRouting({
+  root,
+  profile,
+  reasoningEffort = 'medium',
+  routingMode = 'claude-only',
+} = {}) {
+  if (!['claude-only', 'openai-primary'].includes(routingMode)) {
+    throw safetyError('PILOT_ROUTING_INVALID', 'Choose an explicit supported pilot route.');
+  }
   if (!['medium', 'high', 'xhigh', 'max'].includes(reasoningEffort)) {
     throw safetyError('PILOT_REASONING_REQUIRED', 'Choose the reasoning effort explicitly.');
   }
   const plan = planFreshProfile({ root, profile });
   const config = JSON.parse(plan.files['config.yaml']);
-  config.model = { provider: PRIMARY.provider, default: PRIMARY.model };
+  const primary = routingMode === 'openai-primary' ? OPENAI_PRIMARY : PRIMARY;
+  config.model = { provider: primary.provider, default: primary.model };
   config.agent = { reasoning_effort: reasoningEffort };
   config.fallback_providers = [];
   return {
@@ -22,15 +32,26 @@ function buildPilotRouting({ root, profile, reasoningEffort = 'medium' } = {}) {
     home: plan.home,
     workspace: plan.workspace,
     config,
-    primary: { ...PRIMARY, authentication: 'api-key', metered: true },
-    fallback: null,
+    routingMode,
+    primary: {
+      ...primary,
+      authentication: routingMode === 'openai-primary' ? 'chatgpt-subscription' : 'api-key',
+      metered: routingMode !== 'openai-primary',
+    },
+    fallback:
+      routingMode === 'openai-primary'
+        ? { ...PRIMARY, authentication: 'api-key', metered: true }
+        : null,
+    // Native broad fallback is deliberately empty. The durable dispatcher must
+    // decide from a verified rejection, never a timeout or partial response.
+    fallbackPolicy: routingMode === 'openai-primary' ? 'verified-rejection-only' : null,
     // Configuration is not activation. The dedicated executor must check both
     // credentials and session safety before consuming a queued message.
     activationRequired: true,
   };
 }
 
-module.exports = { buildPilotRouting, PRIMARY };
+module.exports = { buildPilotRouting, PRIMARY, OPENAI_PRIMARY };
 
 // Explicit execution limits for the initial chat-only qualification. This is
 // separate from inactive credential enrollment; neither function activates it.
