@@ -42,7 +42,17 @@ node scripts/hermes-prepare-profile.js --check
 
 Le résultat attendu est `status: passed`, avec `soulLoaderTested`, `nativeBootstrapTested` et `fullRuntimeActivationQualified` à `false`. Un résultat différent suspend cette recette ; ne pas élargir automatiquement les permissions pour la terminer.
 
-## Première session et activation à implémenter
+## Journal du pilote et qualification de l’authentification
+
+`src/hermes-pilot-journal.js` ajoute un chemin V2 dédié, sans branchement sur le daemon actif. Il associe la première session retournée au canal exact, puis exige sa continuité. L’intention précède l’exécution ; la réponse vérifiée est conservée dans une outbox avant publication. Une perte d’accusé de livraison ne relance pas le modèle. Le stockage privé et les écritures synchronisées sont partagés avec le garde de reprise existant.
+
+Dix tests supplémentaires passent avec un exécuteur fictif : création/reprise, conflit de contenu, concurrence, arrêt réel du processus pendant la première création, publication rejouable et révocation d’association. Ce module ne lance pas encore Hermes : le lanceur natif et le service machine restent à intégrer.
+
+`scripts/hermes-pilot-auth.py` prépare une authentification indépendante, depuis l’export propre du runtime audité, sans import des identifiants Codex globaux. Le mode `--login` est volontairement bloqué. Sa qualification native sans réseau s’est arrêtée deux fois : une variable d’encodage ajoutée par macOS, désormais admise, puis une tentative `os.mkdir` pendant l’import natif. Le contrôle a interrompu l’opération avant écriture. Selon la règle anti-boucle, aucune troisième exécution n’a lieu sans intervention du propriétaire. Le prochain diagnostic doit préciser la cible et qualifier uniquement les écritures nécessaires dans un profil jetable, sans élargissement général des droits.
+
+Le profil réel passe toujours `hermes-prepare-profile.js --check` : fichiers inchangés, mémoires vides, aucune session ni authentification créée. Aucune requête modèle ou connexion fournisseur n’a été lancée.
+
+## Première session et activation à terminer
 
 1. Conserver le profil réel vide et bloqué. L’initialisation native sur profil jetable est qualifiée, mais ne constitue pas une autorisation de lancer le CLI de chat. Qualifier son authentification et la capture explicite de l’identifiant de session.
 2. Définir de nouvelles instructions et les outils autorisés. Vérifier aussi la mémoire globale, les fichiers de contexte des dossiers parents et les variables d’environnement : un nouveau nom de profil ne prouve pas à lui seul l’isolation.

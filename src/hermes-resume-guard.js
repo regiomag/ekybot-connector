@@ -336,4 +336,10 @@ class HermesResumeGuard {
   }
 }
 
-module.exports = { HermesResumeGuard, readBindings, RUN_ID_PATTERN };
+module.exports = {
+  HermesResumeGuard,
+  readBindings,
+  readPrivateJson,
+  writeDurableJson,
+  RUN_ID_PATTERN,
+};
