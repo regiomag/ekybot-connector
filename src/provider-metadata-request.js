@@ -1,7 +1,7 @@
 // Bounded metadata GET shared by provider checks. No model call or retry.
 const { spawnSync } = require('node:child_process');
 
-function requestProviderMetadata({ url, headers, invoke = spawnSync }) {
+function requestProviderMetadata({ url, headers, responseLimit = 256 * 1024, invoke = spawnSync }) {
   const target = new URL(url);
   if (
     target.protocol !== 'https:' ||
@@ -33,12 +33,28 @@ function requestProviderMetadata({ url, headers, invoke = spawnSync }) {
     {
       input: `${headers.map((header) => `header = "${header}"`).join('\n')}\n`,
       encoding: 'utf8',
-      maxBuffer: 1024 * 1024,
+      maxBuffer: responseLimit,
       timeout: 18000,
     }
   );
   if (run.status !== 0 || run.error) {
-    return { httpStatus: null, body: null, networkUnavailable: true };
+    return {
+      httpStatus: null,
+      body: null,
+      networkUnavailable: true,
+      transportFailure:
+        run.error?.code === 'ENOBUFS'
+          ? 'response-limit-exceeded'
+          : run.error?.code === 'ETIMEDOUT' || run.status === 28
+            ? 'timeout'
+            : run.status === 6
+              ? 'dns-failed'
+              : run.status === 7
+                ? 'connect-failed'
+                : run.status === 60
+                  ? 'tls-verification-failed'
+                  : 'transport-failed',
+    };
   }
   const text = run.stdout || '';
   const split = text.lastIndexOf('\n');

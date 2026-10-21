@@ -26,9 +26,11 @@ function checkOpenAICatalog({ options = {}, invoke } = {}) {
   if (typeof accountId !== 'string' || !/^[A-Za-z0-9_-]{8,128}$/.test(accountId)) {
     throw new Error('OpenAI account scope unavailable');
   }
-  const { body, httpStatus, networkUnavailable } = requestProviderMetadata({
+  const { body, httpStatus, networkUnavailable, transportFailure } = requestProviderMetadata({
     url: 'https://chatgpt.com/backend-api/codex/models?client_version=1.0.0',
     headers: [`Authorization: Bearer ${token}`, `ChatGPT-Account-Id: ${accountId}`],
+    // Codex catalogs include model instruction templates, not only IDs.
+    responseLimit: 16 * 1024 * 1024,
     invoke,
   });
   const advertised =
@@ -50,6 +52,7 @@ function checkOpenAICatalog({ options = {}, invoke } = {}) {
     httpStatus,
     modelInvoked: false,
     inferenceAccessVerified: false,
+    ...(transportFailure ? { transportFailure } : {}),
   };
 }
 

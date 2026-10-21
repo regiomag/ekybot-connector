@@ -19,6 +19,11 @@ def execute(request):
     offline = request.get("offline") is True
     if not offline:
         raise ValueError("Live execution is not qualified; offline fixtures only")
+    provider = request.get("provider", "anthropic")
+    if provider not in ("anthropic", "openai-codex"):
+        raise ValueError("Unsupported fixture provider")
+    model = "gpt-5.6-sol" if provider == "openai-codex" else "claude-opus-5-5"
+    base_url = "https://chatgpt.com/backend-api/codex" if provider == "openai-codex" else "https://api.anthropic.com"
     session_id = request.get("sessionId")
     if session_id is not None and not re.fullmatch(r"\d{8}_\d{6}_[a-f0-9]{6}", session_id):
         raise ValueError("Invalid exact session")
@@ -89,15 +94,32 @@ def execute(request):
                 raise
 
     def request_guard(http_request):
-        if str(http_request.url).split("?", 1)[0] != "https://api.anthropic.com/v1/messages" or http_request.method != "POST":
+        endpoint = base_url + ("/responses" if provider == "openai-codex" else "/v1/messages")
+        if str(http_request.url).split("?", 1)[0] != endpoint or http_request.method != "POST":
             raise PermissionError("Unexpected native endpoint")
         body = json.loads(http_request.content)
-        if body.get("model") != "claude-opus-5-5" or body.get("tools") or body.get("max_tokens", 999999) > 1024 or calls:
+        limit = body.get("max_output_tokens", 512) if provider == "openai-codex" else body.get("max_tokens", 999999)
+        if body.get("model") != model or body.get("tools") or limit > 1024 or calls:
             raise PermissionError("Unexpected native model call or retry")
         calls.append(body)
 
     def fixture_response(http_request):
         body = json.loads(http_request.content)
+        if provider == "openai-codex":
+            item = {"id": "msg_fixture", "type": "message", "role": "assistant", "status": "completed",
+                    "content": [{"type": "output_text", "text": "OFFLINE_NATIVE_OK", "annotations": []}]}
+            response = {"id": "resp_fixture", "object": "response", "created_at": 1, "status": "completed",
+                        "model": model, "output": [item], "error": None, "incomplete_details": None,
+                        "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2}}
+            events = [
+                {"type": "response.created", "response": {**response, "status": "in_progress", "output": []}},
+                {"type": "response.output_item.added", "output_index": 0, "item": {**item, "status": "in_progress", "content": []}},
+                {"type": "response.output_text.delta", "item_id": "msg_fixture", "output_index": 0, "content_index": 0, "delta": "OFFLINE_NATIVE_OK"},
+                {"type": "response.output_item.done", "output_index": 0, "item": item},
+                {"type": "response.completed", "response": response},
+            ]
+            content = "".join(f"event: {event['type']}\ndata: {json.dumps({**event, 'sequence_number': index})}\n\n" for index, event in enumerate(events))
+            return httpx.Response(200, text=content, headers={"Content-Type": "text/event-stream"})
         message = {
             "id": "msg_offline", "type": "message", "role": "assistant",
             "model": "claude-opus-5-5", "content": [{"type": "text", "text": "OFFLINE_NATIVE_OK"}],
@@ -132,13 +154,25 @@ def execute(request):
     adapter.build_anthropic_client = api_client
     from hermes_state import SessionDB
     from run_agent import AIAgent
+    if provider == "openai-codex":
+        import openai
+
+        def openai_client(self, client_kwargs, *, reason, shared):
+            if client_kwargs.get("api_key") != credential["apiKey"] or client_kwargs.get("base_url") != base_url:
+                raise ValueError("Unexpected OpenAI client configuration")
+            return openai.OpenAI(api_key=credential["apiKey"], base_url=base_url, max_retries=0,
+                default_headers={"ChatGPT-Account-Id": "fixture-account-id"},
+                http_client=DiagnosticClient(transport=httpx.MockTransport(fixture_response), timeout=45,
+                    trust_env=False, follow_redirects=False, event_hooks={"request": [request_guard]}))
+
+        AIAgent._create_openai_client = openai_client
     db = SessionDB(db_path=home / "state.db")
     history = db.get_messages_as_conversation(session_id) if session_id else []
     if session_id and not history:
         raise ValueError("Missing exact native history")
     agent = AIAgent(
-        model="claude-opus-5-5", provider="anthropic", requested_provider="anthropic",
-        api_key=credential["apiKey"], base_url="https://api.anthropic.com",
+        model=model, provider=provider, requested_provider=provider,
+        api_key=credential["apiKey"], base_url=base_url,
         enabled_toolsets=[], disabled_toolsets=["all"], max_iterations=1,
         max_tokens=512, reasoning_config={"enabled": False}, quiet_mode=True,
         save_trajectories=False, verbose_logging=False, session_db=db,
@@ -158,7 +192,8 @@ def execute(request):
             print(json.dumps({"fixtureResult": result, "calls": len(calls), "transportErrors": transport_errors}), file=sys.__stdout__)
         raise ValueError("Unverified native completion")
     return {"sessionId": agent.session_id, "output": output, "modelRequests": len(calls), "offline": offline,
-            "inputMessageCount": len(calls[0].get("messages", []))}
+            "provider": provider,
+            "inputMessageCount": len(calls[0].get("input" if provider == "openai-codex" else "messages", []))}
 
 
 if __name__ == "__main__":

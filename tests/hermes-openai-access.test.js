@@ -24,6 +24,7 @@ test('OpenAI catalog check uses only independent private credentials and does no
     assert.ok(settings.input.includes(token));
     assert.ok(settings.input.includes('ChatGPT-Account-Id: fixture-account-id'));
     assert.ok(args.at(-1).includes('/models?'));
+    assert.equal(settings.maxBuffer, 16 * 1024 * 1024);
     return {
       status: 0,
       stdout: JSON.stringify({ models: [{ slug: 'gpt-5.6-sol', visibility: 'list' }] }) + '\n200',
@@ -35,6 +36,21 @@ test('OpenAI catalog check uses only independent private credentials and does no
   assert.equal(result.inferenceAccessVerified, false);
   assert.equal(JSON.stringify(result).includes(token), false);
   assert.equal(fs.existsSync(path.join(plan.home, 'state.db')), false);
+});
+
+test('metadata failures distinguish oversized catalog and timeout without reflecting stderr', () => {
+  for (const [error, reason] of [
+    [{ code: 'ENOBUFS' }, 'response-limit-exceeded'],
+    [{ code: 'ETIMEDOUT' }, 'timeout'],
+  ]) {
+    const result = requestProviderMetadata({
+      url: 'https://chatgpt.com/backend-api/codex/models',
+      headers: [],
+      invoke: () => ({ status: null, error, stderr: 'PRIVATE_UPSTREAM_DETAIL' }),
+    });
+    assert.equal(result.transportFailure, reason);
+    assert.equal(JSON.stringify(result).includes('PRIVATE_UPSTREAM_DETAIL'), false);
+  }
 });
 
 test('metadata transport rejects header injection and third-party destinations before invoking curl', () => {
