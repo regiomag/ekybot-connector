@@ -15,11 +15,20 @@ afterEach(() => {
 // Fake modules exercise policy only. Native import is a separate offline recipe.
 function probe(
   action = '',
-  { bootstrap = true, login = false, wrongFixture = false, extraEnv = {} } = {}
+  {
+    bootstrap = true,
+    login = false,
+    wrongFixture = false,
+    extraEnv = {},
+    enroll = false,
+    authAction = '',
+  } = {}
 ) {
   const root = fs.mkdtempSync('/private/tmp/ekybot-hermes-auth.');
   fixtures.push(root);
-  const profile = createFreshProfile({ root: path.join(root, 'hermes') });
+  const profile = createFreshProfile({
+    root: path.join(root, enroll ? '.local/share/ekybot-v2/hermes' : 'hermes'),
+  });
   const runtime = path.join(root, 'runtime');
   const packages = path.join(root, 'site-packages');
   fs.mkdirSync(packages);
@@ -30,12 +39,26 @@ function probe(
     '.codex/auth.json': 'SYNTHETIC_SECRET_MUST_NOT_APPEAR',
   };
   const hashes = {};
+  if (enroll)
+    {modules['hermes_cli/auth.py'] += `
+def _codex_device_code_login():
+    return {'tokens': {'access_token':'FAKE_ACCESS_TOKEN', 'refresh_token':'FAKE_REFRESH_TOKEN'}, 'last_refresh':'2026-10-21T00:00:00Z'}
+def _save_codex_tokens(tokens, **kwargs):
+    import os,json
+    ${authAction || 'pass'}
+    with (home/'auth.lock').open('a+'): pass
+    tmp=home/'auth.json.tmp.123.0123456789abcdef0123456789abcdef'
+    with tmp.open('x') as out: json.dump({'providers':{'openai-codex':{'tokens':tokens}}},out)
+    os.replace(tmp,home/'auth.json')
+    (home/'auth.json').chmod(0o600)
+`;}
   for (const [name, content] of Object.entries(modules)) {
     const file = path.join(runtime, name);
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, content);
-    if (name === 'hermes_constants.py' || name === 'hermes_cli/auth.py')
-      {hashes[name] = crypto.createHash('sha256').update(content).digest('hex');}
+    if (name === 'hermes_constants.py' || name === 'hermes_cli/auth.py') {
+      hashes[name] = crypto.createHash('sha256').update(content).digest('hex');
+    }
   }
   const script = path.resolve(__dirname, '../scripts/hermes-pilot-auth.py');
   const args = [
@@ -47,9 +70,10 @@ function probe(
     packages,
     ...(bootstrap ? ['--bootstrap-fixture', wrongFixture ? '/private/tmp' : root] : []),
     ...(login ? ['--login'] : []),
+    ...(enroll ? ['--enroll'] : []),
   ];
   // No production escape hatch: only the test harness substitutes the fixture hashes.
-  const harness = `import importlib.util,sys\nspec=importlib.util.spec_from_file_location('probe',${JSON.stringify(script)})\nmodule=importlib.util.module_from_spec(spec)\nspec.loader.exec_module(module)\nmodule.HASHES=${JSON.stringify(hashes)}\nsys.argv=['probe']+${JSON.stringify(args)}\nmodule.main()\n`;
+  const harness = `import importlib.util,sys\nspec=importlib.util.spec_from_file_location('probe',${JSON.stringify(script)})\nmodule=importlib.util.module_from_spec(spec)\nspec.loader.exec_module(module)\nmodule.HASHES=${JSON.stringify(hashes)}\n${enroll ? `module.Path.home=classmethod(lambda cls: module.Path(${JSON.stringify(root)}))\n` : ''}sys.argv=['probe']+${JSON.stringify(args)}\nmodule.main()\n`;
   const result = spawnSync(
     process.env.EKYBOT_PROBE_PYTHON || 'python3',
     ['-I', '-B', '-S', '-c', harness],
@@ -69,9 +93,12 @@ function probe(
       hash
     );
   }
-  for (const name of ['auth.json', 'state.db', 'new-dir'])
-    {assert.equal(fs.existsSync(path.join(profile.home, name)), false);}
+  for (const name of [...(enroll ? [] : ['auth.json']), 'state.db', 'new-dir']) {
+    assert.equal(fs.existsSync(path.join(profile.home, name)), false);
+  }
   assert.ok(!`${result.stdout}${result.stderr}`.includes('SYNTHETIC_SECRET_MUST_NOT_APPEAR'));
+  assert.ok(!`${result.stdout}${result.stderr}`.includes('FAKE_ACCESS_TOKEN'));
+  assert.ok(!`${result.stdout}${result.stderr}`.includes('FAKE_REFRESH_TOKEN'));
   return result;
 }
 
@@ -136,3 +163,34 @@ test('device login remains disabled even when explicitly requested', () => {
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /Enrollment inactive/);
 });
+
+test('explicit enrollment saves only independent private authentication, not a session', () => {
+  const result = probe('', { bootstrap: false, enroll: true });
+  assert.equal(result.status, 0, result.stderr);
+  const report = JSON.parse(result.stdout);
+  assert.equal(report.status, 'independent-authentication-created');
+  assert.equal(report.modelInvoked, false);
+  assert.equal(report.sessionCreated, false);
+  assert.equal(report.executionEnabled, false);
+});
+test('enrollment refuses a disposable target', () => {
+  const result = probe('', { enroll: true });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Do not authenticate a disposable fixture/);
+});
+for (const [name, authAction, expected] of [
+  ['session write', "(home/'state.db').write_text('fake')", 'unexpected_write'],
+  ['configuration write', "(home/'config.yaml').write_text('fake')", 'unexpected_write'],
+  ['network during saving', 'import socket; socket.socket()', 'network_in_check'],
+  [
+    'process during saving',
+    "import subprocess; subprocess.run(['/usr/bin/true'])",
+    'subprocess.Popen',
+  ],
+]) {
+  test(`enrollment rejects ${name}`, () => {
+    const result = probe('', { bootstrap: false, enroll: true, authAction });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, new RegExp(expected));
+  });
+}

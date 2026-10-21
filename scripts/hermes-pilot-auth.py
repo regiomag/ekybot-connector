@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Qualify native Hermes auth-module import offline. Device login is disabled.
+"""Qualify Hermes auth import offline, or explicitly enroll the fresh pilot.
 
 Run with Python -I -B -S and a credential-free environment. The native Hermes
 auth module comes from the audited clean export; site .pth files are not run.
 --bootstrap-fixture admits only known directory initialization in a disposable
-profile. No credentials, session, model or file writes are allowed. This audit
+profile. --enroll permits a new device login and only the native profile auth
+store writes after import. Neither mode starts a model or session. This audit
 hook detects accidental inheritance, not malicious native extensions.
 """
 import argparse
@@ -12,6 +13,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import sys
 import traceback
 
@@ -33,11 +35,13 @@ def main():
     parser.add_argument('--profile-home', required=True)
     parser.add_argument('--site-packages', required=True)
     parser.add_argument('--login', action='store_true')
+    parser.add_argument('--enroll', action='store_true', help='Explicitly create independent ChatGPT authentication in the fresh V2 pilot')
     parser.add_argument('--trace-blocked', action='store_true', help='Print source locations only for a denied side effect')
     parser.add_argument('--bootstrap-fixture', help='Allow only known native directory initialization inside this disposable fixture')
     args = parser.parse_args()
     if args.login:
         raise SystemExit('Enrollment inactive: this offline diagnostic cannot authenticate a provider.')
+    assert not (args.enroll and args.bootstrap_fixture), 'Do not authenticate a disposable fixture'
     assert sys.flags.isolated and sys.flags.no_site and sys.dont_write_bytecode, 'Use -I -B -S'
     runtime, profile, packages = [Path(value).resolve(strict=True) for value in (args.runtime, args.profile_home, args.site_packages)]
     assert os.environ.get('HERMES_HOME') == str(profile), 'Pin HERMES_HOME explicitly'
@@ -58,16 +62,27 @@ def main():
     for relative in ['.env', 'memories/MEMORY.md', 'memories/USER.md']:
         assert (profile / relative).stat().st_size == 0, 'No inherited credentials or memory'
     assert not (profile / 'auth.json').exists(), 'Existing authentication is never overwritten by this enrollment'
+    if args.enroll:
+        assert profile == Path.home() / '.local/share/ekybot-v2/hermes/profiles/ekybot-v2-pilot', 'Enrollment only targets the dedicated real V2 pilot'
     before = None
     directory_operations = set()
     if args.bootstrap_fixture:
         fixture = Path(args.bootstrap_fixture).resolve(strict=True)
         validate_disposable_fixture(fixture, profile.parent.parent, profile, 'ekybot-hermes-auth.')
         before = profile_snapshot(profile)
+    elif args.enroll:
+        before = profile_snapshot(profile)
     os.umask(0o077)
     os.chdir(profile / 'workspace')
     sys.path[:0] = [str(runtime), str(packages)]
     denied = []
+    phase = 'import'
+
+    def auth_temp(target):
+        return target is not None and target.parent == profile and re.fullmatch(r'auth\.json\.tmp\.\d+\.[0-9a-f]{32}', target.name)
+
+    def auth_write(target):
+        return phase == 'save' and (target == profile / 'auth.lock' or auth_temp(target))
 
     def reject(event):
         denied.append(event)
@@ -83,7 +98,7 @@ def main():
     def audit(event, values):
         if event in {'subprocess.Popen', 'os.system', 'os.posix_spawn', 'os.exec', 'os.fork'}:
             reject(event)
-        if event.startswith('socket.'):
+        if event.startswith('socket.') and phase != 'login':
             reject('network_in_check')
         if event == 'open':
             target = path_value(values[0])
@@ -91,7 +106,7 @@ def main():
                 return
             mode, flags = values[1], values[2]
             writing = isinstance(mode, str) and any(c in mode for c in 'wax+') or isinstance(flags, int) and flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND)
-            if writing:
+            if writing and not auth_write(target):
                 reject('unexpected_write')
             if target.is_relative_to(packages):
                 return
@@ -101,10 +116,16 @@ def main():
                 reject('legacy_or_secret_read')
         if event in {'os.mkdir', 'os.chmod'}:
             target = path_value(values[0])
+            if event == 'os.chmod' and phase == 'save' and target == profile / 'auth.json' and values[1] == 0o600 and (len(values) < 3 or values[2] == -1):
+                return
             if before is not None and bootstrap_directory_event_allowed(event, values, profile):
                 directory_operations.add(str(target.relative_to(profile)) or '.')
                 return
             reject(f'{event}:{target}')
+        if event == 'os.rename' and phase == 'save' and auth_temp(path_value(values[0])) and path_value(values[1]) == profile / 'auth.json':
+            return
+        if event == 'os.remove' and phase == 'save' and auth_temp(path_value(values[0])):
+            return
         if event in {'os.rename', 'os.remove', 'os.rmdir', 'os.symlink', 'os.link', 'os.chown', 'os.truncate'}:
             reject(event)
 
@@ -115,6 +136,26 @@ def main():
     assert auth._auth_file_path() == profile / 'auth.json'
     assert not denied
     created = assert_bootstrap_changes(before, profile_snapshot(profile), profile) if before is not None else []
+    if args.enroll:
+        # Never use _login_openai_codex(): it may import the global Codex cache.
+        # The device flow creates an independent refresh-token lineage.
+        phase = 'login'
+        try:
+            credentials = auth._codex_device_code_login()
+            tokens = credentials.get('tokens', {})
+            assert all(isinstance(tokens.get(name), str) and tokens[name] for name in ('access_token', 'refresh_token'))
+            phase = 'save'
+            auth._save_codex_tokens(tokens, last_refresh=credentials['last_refresh'], label='Ekybot V2')
+        except Exception as error:
+            raise SystemExit('Pilot enrollment failed (' + type(error).__name__ + '); no model was started.') from None
+        finally:
+            phase = 'verify'
+        after = profile_snapshot(profile)
+        assert_bootstrap_changes(before, {name: value for name, value in after.items() if name not in {'auth.json', 'auth.lock'}}, profile)
+        assert after['auth.json']['mode'] == 0o600
+        assert not denied
+        print(json.dumps({'status': 'independent-authentication-created', 'provider': 'openai-codex', 'modelInvoked': False, 'credentialsCopied': False, 'sessionCreated': False, 'executionEnabled': False}))
+        return
     print(json.dumps({
         'status': 'native-auth-import-passed', 'scope': 'offline-auth-module-import',
         'modelInvoked': False, 'credentialsCopied': False, 'providerAuthenticationTested': False,

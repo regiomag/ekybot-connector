@@ -52,7 +52,7 @@ Dix tests supplémentaires passent avec un exécuteur fictif : création/reprise
 
 La recette native passe désormais avec `--bootstrap-fixture` : seuls `audio_cache`, `hooks`, `image_cache`, `logs/curator` et `pairing` sont ajoutés au profil jetable, en permissions privées. Les fichiers existants, leurs empreintes et leurs permissions restent inchangés ; les mémoires restent vides. Le diagnostic et celui des lecteurs partagent une seule politique de dossiers autorisés dans `scripts/hermes_bootstrap_policy.py`. Toute écriture de fichier, tout accès réseau ou sous-processus reste bloqué ; ce contrôle Python est un détecteur, pas une sandbox OS.
 
-Quatorze nouveaux tests vérifient notamment les refus d’écriture d’identifiants/session, de dossier hors liste, de permissions élargies, de lecture d’anciens secrets et d’environnement contenant une clé API. `--login` est toujours refusé : cette recette ne teste ni la connexion fournisseur ni le chat réel, et ne crée aucun identifiant.
+Quatorze tests vérifient notamment les refus d’écriture d’identifiants/session, de dossier hors liste, de permissions élargies, de lecture d’anciens secrets et d’environnement contenant une clé API. `--login` est toujours refusé : cette recette hors ligne ne teste ni la connexion fournisseur ni le chat réel, et ne crée aucun identifiant. Le mode d’enrôlement explicite décrit ci-dessous est distinct.
 
 Commande utilisée sur le profil jetable neuf, préparé séparément par le provisionneur :
 
@@ -70,7 +70,19 @@ env -i PATH=/usr/bin:/bin \
 
 Résultat observé : `native-auth-import-passed`, `existingProfileFilesUnchanged: true`, `providerAuthenticationTested: false`, `loginEnabled: false`, `modelInvoked: false`. Les chemins temporaires ci-dessus documentent cette exécution ; pour la reproduire, préparer un nouveau profil jetable privé, sans réutiliser le profil réel ni élargir la liste des dossiers autorisés.
 
-Le profil réel passe toujours `hermes-prepare-profile.js --check` : fichiers inchangés, mémoires vides, aucune session ni authentification créée. Aucune requête modèle ou connexion fournisseur n’a été lancée.
+Avant enrôlement, le profil réel passait `hermes-prepare-profile.js --check` : fichiers inchangés, mémoires vides, aucune session ni authentification créée. Ce contrôle du profil strictement vierge n’est plus le contrôle adapté après l’ajout des dossiers natifs ou des identifiants ; ne pas effacer ces éléments pour le faire repasser.
+
+## Connexion par abonnement et secours API
+
+Le propriétaire demande désormais `openai-codex` avec `gpt-5.6-sol` en principal, et `anthropic` avec `claude-opus-5-5` en secours. `src/hermes-pilot-routing.js` construit cette configuration à partir du profil neuf, sans accorder d’outils ni importer de secrets. L’effort de raisonnement doit être choisi explicitement ; le mot « max » dans la demande d’abonnement ne suffit pas à changer silencieusement ce réglage. La configuration n’est pas encore appliquée au runtime.
+
+Les identifiants de modèle sont confirmés par les pages officielles [GPT-5.6 Sol](https://developers.openai.com/api/docs/models/gpt-5.6-sol) et [Claude Opus 5.5](https://platform.claude.com/docs/en/models/opus-5-5/overview). La [connexion ChatGPT](https://learn.chatgpt.com/docs/auth) utilise l’abonnement ; le secours Anthropic utilise une clé API et sa facturation propre. La disponibilité effective sur le compte reste à vérifier après connexion.
+
+Sur autorisation du propriétaire, `scripts/hermes-pilot-auth.py --enroll` démarre maintenant le flux device-code natif, uniquement sur le profil V2 réel. Le mode refuse les profils jetables et tout identifiant déjà présent. Il n’appelle pas le helper qui pourrait importer le cache Codex global. Après l’import qualifié, le réseau est admis pour la connexion ; l’enregistrement n’autorise que le fichier d’authentification du profil, son verrou et ses fichiers temporaires privés. Les écritures de configuration/session, les sous-processus et les lectures d’anciens secrets restent bloqués. Le marqueur interdisant l’exécution reste en place.
+
+La demande de connexion est ouverte et attend la validation du propriétaire dans son navigateur. Aucun code temporaire ni secret n’est enregistré dans ce document. La clé API Anthropic doit être fournie par un chemin local explicitement désigné ou une saisie locale sécurisée, jamais dans le chat. Aucun appel modèle ni première session n’a encore été lancé.
+
+Six tests d’enrôlement sur modules fictifs et quatre tests de routage passent. Ils vérifient notamment l’absence d’exposition des tokens, l’interdiction des écritures de session/configuration et les modèles exacts. Ils ne constituent pas une connexion fournisseur réelle ni une preuve du fonctionnement du secours.
 
 ## Première session et activation à terminer
 
@@ -153,6 +165,6 @@ Ce mécanisme ne verrouille pas les clients Hermes externes, ne rend pas idempot
 node --test tests/*.test.js
 ```
 
-Au 21 octobre 2026 : **149 tests Node passent**, dont les validations SQLite sur bases fictives, les arguments CLI avec processus simulé, le rejeu après recréation de l’adaptateur, la concurrence de deux gardes, la mort d’un vrai sous-processus Node pendant une exécution fictive, les protections du provisionnement, les dix tests du journal V2, les 20 tests du diagnostic des lecteurs/bootstrap et les 14 tests du diagnostic d’import d’authentification. Les tests Python nécessitent Python 3 (`EKYBOT_PROBE_PYTHON` permet de choisir l’interpréteur) et utilisent des modules Hermes fictifs. Aucun runtime Hermes ni modèle n’est appelé par cette suite. Le lint ciblé passe également. Les recettes natives des lecteurs, du bootstrap jetable et de l’import d’authentification passent séparément, avec les limites précisées plus haut.
+Au 21 octobre 2026 : **159 tests Node passent**, dont les validations SQLite sur bases fictives, les arguments CLI avec processus simulé, le rejeu après recréation de l’adaptateur, la concurrence de deux gardes, la mort d’un vrai sous-processus Node pendant une exécution fictive, les protections du provisionnement, les dix tests du journal V2, les 20 tests du diagnostic des lecteurs/bootstrap, les 20 tests du diagnostic d’authentification/enrôlement et quatre tests de routage. Les tests Python nécessitent Python 3 (`EKYBOT_PROBE_PYTHON` permet de choisir l’interpréteur) et utilisent des modules Hermes fictifs. Aucun runtime Hermes ni modèle n’est appelé par cette suite. Le lint ciblé passe également. Les recettes natives des lecteurs, du bootstrap jetable et de l’import d’authentification passent séparément, avec les limites précisées plus haut.
 
 Le connecteur actif, l’ancienne base, les secrets et les conversations n’ont pas été reconfigurés. Le profil vide et ses lecteurs sont vérifiés ; l’initialisation complète, la première session et la livraison de bout en bout restent les prochains critères du pilote. La récupération de l’ancien chat est abandonnée.
