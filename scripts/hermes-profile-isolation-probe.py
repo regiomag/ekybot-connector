@@ -1,20 +1,25 @@
 #!/usr/bin/env python3
 """Exercise native Hermes readers only, with network/process/write denial.
 
-Not a full CLI startup test. In particular, it does not qualify SOUL loading
-(which bootstraps directories), dotenv, credentials, plugins or sessions.
+Default: read-only memory/context/skills. --bootstrap-fixture additionally
+exercises native home/config/dotenv/SOUL initialization in a disposable copy.
+Neither mode starts the chat CLI, authenticates, or creates a session.
 The audit hook is a diagnostic tripwire, not an OS security sandbox.
 """
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
+import stat
 import sys
+import tempfile
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--runtime', required=True)
 parser.add_argument('--home', required=True)
 parser.add_argument('--root', required=True)
+parser.add_argument('--bootstrap-fixture', help='Disposable parent containing runtime/ and hermes/')
 args = parser.parse_args()
 runtime = Path(args.runtime).resolve(strict=True)
 home = Path(args.home).resolve(strict=True)
@@ -23,11 +28,46 @@ assert home.parent.parent == root and home.parent.name == 'profiles'
 assert os.environ.get('HERMES_HOME') == str(home), 'Pin the profile before importing Hermes'
 assert (home / '.ekybot-prepared-offline.json').is_file()
 assert not any(key.endswith(('_TOKEN', '_SECRET', '_API_KEY')) for key in os.environ), 'Use a credential-free environment'
+bootstrap = args.bootstrap_fixture is not None
+bootstrap_dirs = {home / name for name in (
+    '', 'cron', 'sessions', 'logs', 'logs/curator', 'memories',
+    'pairing', 'hooks', 'image_cache', 'audio_cache', 'skills',
+)}
+before = {}
+
+
+def snapshot():
+    result = {}
+    for item in sorted(home.rglob('*')):
+        info = item.lstat()
+        assert not item.is_symlink(), 'No profile symlinks allowed'
+        assert info.st_uid == os.getuid() and not (info.st_mode & 0o077)
+        result[str(item.relative_to(home))] = {
+            'mode': stat.S_IMODE(info.st_mode),
+            'hash': hashlib.sha256(item.read_bytes()).hexdigest() if item.is_file() else None,
+        }
+    return result
+
+
+if bootstrap:
+    fixture = Path(args.bootstrap_fixture).resolve(strict=True)
+    assert fixture.parent in {Path('/private/tmp'), Path(tempfile.gettempdir()).resolve()}
+    assert fixture.name.startswith('ekybot-hermes-bootstrap.')
+    assert root == fixture / 'hermes' and runtime == fixture / 'runtime'
+    assert home == root / 'profiles' / 'ekybot-v2-pilot'
+    assert not (fixture.stat().st_mode & 0o077) and fixture.stat().st_uid == os.getuid()
+    assert not (runtime / '.env').exists() and not (runtime / '.env').is_symlink(), 'Use a clean source export, never the live checkout'
+    assert (home / '.env').stat().st_size == 0, 'Fixture dotenv must be empty'
+    before = snapshot()
+    os.umask(0o077)
 workspace = home / 'workspace'
 os.chdir(workspace)
 sys.path.insert(0, str(runtime))
 denied = []
-legacy = Path.home() / '.hermes'
+directory_operations = set()
+dotenv_reads = set()
+legacy = (Path.home() / '.hermes').resolve()
+managed = Path('/etc/hermes').resolve()
 
 
 def reject(event):
@@ -40,24 +80,52 @@ def reject(event):
 def audit(event, values):
     if event.startswith('socket.') or event in {'subprocess.Popen', 'os.system', 'os.posix_spawn', 'os.exec', 'os.fork'}:
         reject(event)
-    if event in {'os.rename', 'os.remove', 'os.rmdir', 'os.symlink', 'os.link', 'os.chmod', 'os.truncate'}:
+    if event == 'os.chmod':
+        target = Path(os.fsdecode(values[0])).absolute() if isinstance(values[0], (str, bytes, os.PathLike)) else None
+        if not bootstrap or target not in bootstrap_dirs or target.is_symlink() or values[1] != 0o700:
+            reject(event)
+        directory_operations.add(str(target.relative_to(home)) or '.')
+    if event in {'os.rename', 'os.remove', 'os.rmdir', 'os.symlink', 'os.link', 'os.chown', 'os.truncate', 'os.utime'}:
         reject(event)
     if event == 'os.mkdir':
         # Only MemoryStore's existing directory is admissible. Native home
         # bootstrap is not a reader and must remain blocked by this probe.
         target = Path(os.fsdecode(values[0])).absolute()
-        if target != home / 'memories' or target.is_symlink() or not target.is_dir():
+        allowed = target in bootstrap_dirs if bootstrap else target == home / 'memories' and target.is_dir()
+        if not allowed or target.is_symlink():
             reject(f'{event}:{target}')
+        directory_operations.add(str(target.relative_to(home)) or '.')
     if event == 'open' and isinstance(values[0], (str, bytes, os.PathLike)):
         target = Path(os.fsdecode(values[0])).resolve()
         mode, flags = values[1], values[2]
         if (isinstance(mode, str) and any(c in mode for c in 'wax+')) or (isinstance(flags, int) and flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND)):
             reject('file_write')
-        if target == legacy or legacy in target.parents or target.name in {'.env', '.op.env', 'auth.json'} or 'workspace-main' in target.parts:
+        fixture_dotenv = bootstrap and target == home / '.env' and target.stat().st_size == 0
+        if target == legacy or legacy in target.parents or (target.name in {'.env', '.op.env', 'auth.json'} and not fixture_dotenv) or 'workspace-main' in target.parts or target == managed or managed in target.parents:
             reject('legacy_or_secret_read')
+        if fixture_dotenv:
+            dotenv_reads.add(str(target.relative_to(home)))
 
 
 sys.addaudithook(audit)
+
+if bootstrap:
+    from hermes_cli.config import ensure_hermes_home, load_config
+    from hermes_cli.env_loader import load_hermes_dotenv
+    from agent.prompt_builder import load_soul_md
+
+    ensure_hermes_home()
+    # Same loader/default external-source policy as the native CLI; no secrets
+    # configured. No replacement of functions or seeded "already initialized" cache.
+    loaded_env = load_hermes_dotenv(hermes_home=home, project_env=runtime / '.env')
+    assert loaded_env == [home / '.env']
+    config = load_config()
+    assert config['terminal']['cwd'] == str(home / 'workspace')
+    assert config['skills']['external_dirs'] == [] and config['skills']['project_discovery'] is False
+    assert config['mcp_servers'] == {} and config['toolsets'] == []
+    assert config['model'] in ('', {'default': ''}), 'Unexpected model selection'
+    assert load_soul_md(home_override=home) == (home / 'SOUL.md').read_text().strip()
+    assert not any(key.endswith(('_TOKEN', '_SECRET', '_API_KEY')) for key in os.environ)
 
 from hermes_constants import get_hermes_home, get_default_hermes_root
 from tools.memory_tool import MemoryStore, get_memory_dir
@@ -73,18 +141,28 @@ assert memory.memory_entries == [] and memory.user_entries == []
 assert not memory.format_for_system_prompt('memory')
 assert not memory.format_for_system_prompt('user')
 assert build_context_files_prompt(cwd=str(workspace), skip_soul=True, home_override=home) == ''
-# load_soul_md() invokes ensure_hermes_home(): mkdir/chmod and optional
-# seeding. Do not mock that initializer or weaken the no-write guard to
-# present a bootstrap-dependent path as a read-only qualification.
+# The read-only mode excludes SOUL's bootstrap-dependent path. The explicit
+# disposable mode above executes it, without replacing native functions.
 assert get_all_skills_dirs() == [home / 'skills']
 assert get_project_skills_dirs() == []
 assert list((home / 'skills').iterdir()) == []
 assert not denied, 'An imported reader attempted a blocked side effect'
 
+created_dirs = []
+if bootstrap:
+    after = snapshot()
+    assert all(after.get(name) == value for name, value in before.items()), 'Existing profile contents changed'
+    created_dirs = sorted(set(after) - set(before))
+    assert all(home / name in bootstrap_dirs and after[name] == {'mode': 0o700, 'hash': None} for name in created_dirs)
+    assert not (home / 'state.db').exists(), 'No native session may be created'
+
 print(json.dumps({
-    'status': 'passed', 'scope': 'native-memory-context-skill-readers',
+    'status': 'passed', 'scope': 'native-config-bootstrap' if bootstrap else 'native-memory-context-skill-readers',
     'memoryEntries': 0, 'userEntries': 0, 'projectContextLoaded': False,
     'externalSkillsLoaded': False, 'legacyReads': 0, 'modelInvoked': False,
-    'soulLoaderTested': False, 'nativeBootstrapTested': False,
+    'soulLoaderTested': bootstrap, 'nativeBootstrapTested': bootstrap,
+    'chatCliTested': False, 'providerAuthenticationTested': False,
+    'createdDirectories': created_dirs, 'directoryOperations': sorted(directory_operations),
+    'dotenvFilesRead': sorted(dotenv_reads), 'existingProfileFilesUnchanged': True if bootstrap else None,
     'fullRuntimeActivationQualified': False,
 }, indent=2))

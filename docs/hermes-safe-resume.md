@@ -22,7 +22,9 @@ Le diagnostic `scripts/hermes-profile-isolation-probe.py` passe sur un profil te
 
 **Ce résultat porte sur les lecteurs, pas sur le démarrage du CLI.** Le lecteur natif `load_soul_md()` appelle aussi `ensure_hermes_home()`, qui crée des dossiers et applique des permissions. Il est donc exclu de cette recette strictement sans écriture ; son initialisation n’est ni simulée ni neutralisée pour faire passer le contrôle. La seule opération `mkdir` admise vise le dossier `memories` déjà présent, non symbolique. Le démarrage natif et le chargement de `SOUL.md`, `.env`, credentials et plugins restent à qualifier séparément sur un profil jetable avant activation du pilote.
 
-Le contrôle Python interrompt les accès réseau, sous-processus, écritures et lectures de secrets/anciens contextes couverts par ses règles. Il résout aussi les liens symboliques pour les lectures. C’est un détecteur d’effets indésirables pendant cette recette, **pas une sandbox de sécurité du processus**. Douze tests sur modules fictifs vérifient ses refus et le périmètre annoncé ; ils ne remplacent pas la recette native.
+Un deuxième mode, `--bootstrap-fixture`, qualifie maintenant l’initialisation native sur un export Git propre et un profil jetable privés sous le répertoire temporaire. `ensure_hermes_home()`, `load_hermes_dotenv()`, `load_config()` et `load_soul_md()` passent : seuls cinq dossiers natifs sont ajoutés, les fichiers initiaux restent inchangés, la mémoire reste vide et aucun modèle ni secret n’est chargé. Ce mode refuse le profil réel, un runtime contenant `.env`, toute écriture de fichier et les créations de dossiers hors liste. Le CLI de chat, l’authentification et la première session restent à qualifier.
+
+Le contrôle Python interrompt les accès réseau, sous-processus, écritures et lectures de secrets/anciens contextes couverts par ses règles. Il résout aussi les liens symboliques pour les lectures. C’est un détecteur d’effets indésirables pendant cette recette, **pas une sandbox de sécurité du processus**. Vingt tests sur modules fictifs vérifient ses refus et le périmètre annoncé ; ils ne remplacent pas la recette native.
 
 Commande native utilisée sur le Mac, dans un environnement sans credentials et sans écriture de bytecode :
 
@@ -42,7 +44,7 @@ Le résultat attendu est `status: passed`, avec `soulLoaderTested`, `nativeBoots
 
 ## Première session et activation à implémenter
 
-1. Conserver le profil réel vide et bloqué. Qualifier ensuite l’initialisation native sur un profil jetable : effets de création/permissions limités à ce profil, aucun ancien contexte ni secret chargé, aucun modèle appelé. Ne pas utiliser la recette des lecteurs pour autoriser le CLI.
+1. Conserver le profil réel vide et bloqué. L’initialisation native sur profil jetable est qualifiée, mais ne constitue pas une autorisation de lancer le CLI de chat. Qualifier son authentification et la capture explicite de l’identifiant de session.
 2. Définir de nouvelles instructions et les outils autorisés. Vérifier aussi la mémoire globale, les fichiers de contexte des dossiers parents et les variables d’environnement : un nouveau nom de profil ne prouve pas à lui seul l’isolation.
 3. Créer la première session avec une demande stable, puis enregistrer durablement l’identifiant natif retourné, le profil et le nouveau canal. Ne jamais déduire cet identifiant d’un titre, d’un préfixe ou de la session la plus récente.
 4. Si cette création s’interrompt avec un résultat incertain, suspendre et réconcilier ; ne pas lancer automatiquement une deuxième création.
@@ -121,6 +123,6 @@ Ce mécanisme ne verrouille pas les clients Hermes externes, ne rend pas idempot
 node --test tests/*.test.js
 ```
 
-Au 21 octobre 2026 : **117 tests Node passent**, dont les validations SQLite sur bases fictives, les arguments CLI avec processus simulé, le rejeu après recréation de l’adaptateur, la concurrence de deux gardes, la mort d’un vrai sous-processus Node pendant une exécution fictive, les protections du provisionnement et les 12 tests du diagnostic Python. Ces derniers nécessitent Python 3 (`EKYBOT_PROBE_PYTHON` permet de choisir l’interpréteur) et utilisent des modules Hermes fictifs. Aucun runtime Hermes ni modèle n’est appelé par cette suite. Le lint ciblé passe également. La recette séparée des lecteurs natifs passe sur les profils temporaire et réel, avec les limites précisées plus haut.
+Au 21 octobre 2026 : **125 tests Node passent**, dont les validations SQLite sur bases fictives, les arguments CLI avec processus simulé, le rejeu après recréation de l’adaptateur, la concurrence de deux gardes, la mort d’un vrai sous-processus Node pendant une exécution fictive, les protections du provisionnement et les 20 tests du diagnostic Python. Ces derniers nécessitent Python 3 (`EKYBOT_PROBE_PYTHON` permet de choisir l’interpréteur) et utilisent des modules Hermes fictifs. Aucun runtime Hermes ni modèle n’est appelé par cette suite. Le lint ciblé passe également. Les recettes natives des lecteurs et du bootstrap jetable passent séparément, avec les limites précisées plus haut.
 
 Le connecteur actif, l’ancienne base, les secrets et les conversations n’ont pas été reconfigurés. Le profil vide et ses lecteurs sont vérifiés ; l’initialisation complète, la première session et la livraison de bout en bout restent les prochains critères du pilote. La récupération de l’ancien chat est abandonnée.
