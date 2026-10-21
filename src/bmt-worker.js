@@ -38,6 +38,7 @@ async function planAgent({
   fetchImpl,
 }) {
   const connections = claim.connections.filter((c) => c.agent_id === agent.id);
+  const sources = new Map();
   const runtime = await openRuntime({ stateDir, chatId: claim.chat.id, agent });
   try {
     let input = `${protocol}\nCONNEXIONS: ${bounded(
@@ -76,7 +77,7 @@ async function planAgent({
         return {
           agentId: agent.id,
           text: command.text,
-          sources: connections.map((c) => ({ label: c.label, projectId: c.project_id })),
+          sources: [...sources.values()],
         };
       }
       let observation;
@@ -98,6 +99,12 @@ async function planAgent({
               broker.decrypt(binding.envelope, identity(binding), pair),
               fetchImpl
             );
+            if (observation.ok) {
+              sources.set(binding.project_id, {
+                label: binding.label,
+                projectId: binding.project_id,
+              });
+            }
           } else {
             observation = await api('propose', {
               id: stepId(claim.job.id, agent.id, 100 + step),

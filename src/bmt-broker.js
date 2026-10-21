@@ -43,6 +43,9 @@ function decrypt(envelope, identity, pair) {
   return key;
 }
 function clean(value, depth = 0) {
+  if (typeof value === 'string' && /(?:bmt_|sk-ant-)[A-Za-z0-9_-]{16,}/.test(value)) {
+    throw fail();
+  }
   if (depth > 8) {
     throw fail();
   }

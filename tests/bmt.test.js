@@ -185,7 +185,7 @@ test('planner only proposes mutations, labels source and limits the model loop',
   });
   assert.equal(fetches, 0);
   assert.equal(calls.filter((x) => x.op === 'propose').length, 1);
-  assert.equal(answer.sources[0].projectId, c.project_id);
+  assert.deepEqual(answer.sources, [], 'a proposal is not a successful data source');
   assert.equal(models, 2);
 });
 test('cross-agent project requests never obtain another agent key', async () => {
