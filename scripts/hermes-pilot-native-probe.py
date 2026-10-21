@@ -1,4 +1,4 @@
-"""EXPERIMENTAL, OFFLINE ONLY: native Hermes fixture, not a live executor.
+"""Bounded chat-only Hermes executor, also exercised with offline transports.
 
 The dedicated executor uses AIAgent + SessionDB, not CLI startup/discovery.
 The legacy Hermes installation and its routing are never modified.
@@ -18,7 +18,16 @@ def execute(request):
     packages = Path(request["packages"]).resolve(strict=True)
     offline = request.get("offline") is True
     if not offline:
-        raise ValueError("Live execution is not qualified; offline fixtures only")
+        activation = json.loads((home / ".ekybot-pilot-active.json").read_text())
+        if (activation.get("executionAllowed") is not True
+                or activation.get("channelId") != request.get("channelId")
+                or activation.get("runtime") != str(runtime)
+                or activation.get("packages") != str(packages)
+                or not re.fullmatch(r"[a-f0-9-]{36}", request.get("jobId", ""))):
+            raise PermissionError("Pilot activation required")
+        journal = json.loads((home / "pilot-journal" / (request["jobId"] + ".json")).read_text())
+        if journal.get("status") != "started" or journal.get("channelId") != request["channelId"]:
+            raise PermissionError("Durable job admission required")
     provider = request.get("provider", "anthropic")
     if provider not in ("anthropic", "openai-codex"):
         raise ValueError("Unsupported fixture provider")
@@ -30,11 +39,12 @@ def execute(request):
     if not isinstance(request.get("input"), str) or not 1 <= len(request["input"]) <= 12000:
         raise ValueError("Invalid input")
     credential = request["credential"]
+    fallback_credential = request.get("fallbackCredential", credential)
     if offline and credential != {"apiKey": "sk-ant-api-offline-fixture", "workspaceId": "wrkspc_offlinefixture"}:
         raise ValueError("Offline mode requires dummy credentials")
     os.umask(0o077)
     os.environ["HERMES_HOME"] = str(home)
-    os.environ["ANTHROPIC_API_KEY"] = credential["apiKey"]
+    os.environ["ANTHROPIC_API_KEY"] = fallback_credential["apiKey"]
     os.environ["TIKTOKEN_CACHE_DIR"] = str(home / "cache")
     os.environ["HERMES_SINGLE_QUERY_SESSION"] = "1"
     os.chdir(home / "workspace")
@@ -75,10 +85,28 @@ def execute(request):
 
     native_classifier = auth._is_oauth_token
     # Personal Console API keys are API credentials, not Claude Code OAuth.
-    auth._is_oauth_token = lambda token: False if token == credential["apiKey"] else native_classifier(token)
+    auth._is_oauth_token = lambda token: False if token == fallback_credential["apiKey"] else native_classifier(token)
     adapter._is_oauth_token = auth._is_oauth_token
     calls = []
     transport_errors = []
+    attempts = []
+    fallback_activated = False
+
+    def save_attempts():
+        if offline:
+            return
+        destination = home / "pilot-journal" / (request["jobId"] + ".attempts.json")
+        temporary = destination.with_suffix(".tmp")
+        with open(temporary, "w") as stream:
+            json.dump(attempts, stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, destination)
+        fd = os.open(destination.parent, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
 
     class DiagnosticClient(httpx.Client):
         def send(self, *args, **kwargs):
@@ -89,23 +117,36 @@ def execute(request):
                 # Record the underlying fake-transport exception rather than
                 # diagnosing the SDK's generic "Connection error" repeatedly.
                 import traceback
-                transport_errors.append({"type": type(error).__name__, "message": str(error),
+                transport_errors.append({"type": type(error).__name__, "message": str(error) if offline else "redacted",
                     "locations": [f"{Path(f.filename).name}:{f.lineno}" for f in traceback.extract_tb(error.__traceback__)[-5:]]})
                 raise
 
     def request_guard(http_request):
-        endpoint = base_url + ("/responses" if provider == "openai-codex" else "/v1/messages")
-        if str(http_request.url).split("?", 1)[0] != endpoint or http_request.method != "POST":
+        endpoint = str(http_request.url).split("?", 1)[0]
+        target = {"https://chatgpt.com/backend-api/codex/responses": "openai-codex",
+                  "https://api.anthropic.com/v1/messages": "anthropic"}.get(endpoint)
+        if not target or http_request.method != "POST":
             raise PermissionError("Unexpected native endpoint")
         body = json.loads(http_request.content)
-        limit = body.get("max_output_tokens", 512) if provider == "openai-codex" else body.get("max_tokens", 999999)
-        if body.get("model") != model or body.get("tools") or limit > 1024 or calls:
+        expected = "gpt-5.6-sol" if target == "openai-codex" else "claude-opus-5-5"
+        limit = body.get("max_output_tokens", 512) if target == "openai-codex" else body.get("max_tokens", 999999)
+        if (body.get("model") != expected or body.get("tools") or limit > 1024
+                or any(a["provider"] == target for a in attempts)
+                or (target != provider and not fallback_activated)):
             raise PermissionError("Unexpected native model call or retry")
+        attempts.append({"provider": target, "status": "started"})
+        save_attempts()  # Durable before handing a prompt to the network.
         calls.append(body)
+
+    def response_guard(response):
+        attempts[-1].update(status="response-headers", httpStatus=response.status_code)
+        save_attempts()
 
     def fixture_response(http_request):
         body = json.loads(http_request.content)
-        if provider == "openai-codex":
+        if http_request.url.host == "chatgpt.com":
+            if request.get("fixturePrimaryStatus"):
+                return httpx.Response(request["fixturePrimaryStatus"], json={"error": {"message": "fixture refusal", "type": "permission_error"}})
             item = {"id": "msg_fixture", "type": "message", "role": "assistant", "status": "completed",
                     "content": [{"type": "output_text", "text": "OFFLINE_NATIVE_OK", "annotations": []}]}
             response = {"id": "resp_fixture", "object": "response", "created_at": 1, "status": "completed",
@@ -142,16 +183,17 @@ def execute(request):
         return httpx.Response(200, text=content, headers={"Content-Type": "text/event-stream"})
 
     def api_client(api_key, base_url=None, timeout=None, **kwargs):
-        if api_key != credential["apiKey"] or base_url not in (None, "https://api.anthropic.com", "https://api.anthropic.com/"):
+        if api_key != fallback_credential["apiKey"] or base_url not in (None, "https://api.anthropic.com", "https://api.anthropic.com/"):
             raise PermissionError("Unexpected native credential or endpoint")
         transport = httpx.MockTransport(fixture_response) if offline else None
         return anthropic.Anthropic(
             api_key=api_key, base_url="https://api.anthropic.com", max_retries=0,
-            timeout=45, default_headers={"anthropic-workspace-id": credential["workspaceId"]},
-            http_client=DiagnosticClient(transport=transport, timeout=45, trust_env=False, follow_redirects=False, event_hooks={"request": [request_guard]}),
+            timeout=45, default_headers={"anthropic-workspace-id": fallback_credential["workspaceId"]},
+            http_client=DiagnosticClient(transport=transport, timeout=45, trust_env=False, follow_redirects=False, event_hooks={"request": [request_guard], "response": [response_guard]}),
         )
 
     adapter.build_anthropic_client = api_client
+    auth.build_anthropic_client = api_client
     from hermes_state import SessionDB
     from run_agent import AIAgent
     if provider == "openai-codex":
@@ -161,11 +203,27 @@ def execute(request):
             if client_kwargs.get("api_key") != credential["apiKey"] or client_kwargs.get("base_url") != base_url:
                 raise ValueError("Unexpected OpenAI client configuration")
             return openai.OpenAI(api_key=credential["apiKey"], base_url=base_url, max_retries=0,
-                default_headers={"ChatGPT-Account-Id": "fixture-account-id"},
-                http_client=DiagnosticClient(transport=httpx.MockTransport(fixture_response), timeout=45,
-                    trust_env=False, follow_redirects=False, event_hooks={"request": [request_guard]}))
+                default_headers={"ChatGPT-Account-Id": "fixture-account-id" if offline else credential["accountId"]},
+                http_client=DiagnosticClient(transport=httpx.MockTransport(fixture_response) if offline else None, timeout=45,
+                    trust_env=False, follow_redirects=False, event_hooks={"request": [request_guard], "response": [response_guard]}))
 
         AIAgent._create_openai_client = openai_client
+        # No hidden global Codex recovery, refresh retry or alternate transport.
+        AIAgent._try_refresh_codex_client_credentials = lambda self, **kwargs: False
+        AIAgent._try_recover_primary_transport = lambda self, *args, **kwargs: False
+        original_fallback = AIAgent._try_activate_fallback
+
+        def guarded_fallback(self, reason=None):
+            nonlocal fallback_activated
+            if (fallback_activated or len(attempts) != 1
+                    or attempts[0].get("httpStatus") not in (401, 403, 404, 429)):
+                return False
+            fallback_activated = True
+            attempts[0]["status"] = "rejected-before-execution"
+            save_attempts()
+            return original_fallback(self, reason)
+
+        AIAgent._try_activate_fallback = guarded_fallback
     db = SessionDB(db_path=home / "state.db")
     history = db.get_messages_as_conversation(session_id) if session_id else []
     if session_id and not history:
@@ -178,7 +236,10 @@ def execute(request):
         save_trajectories=False, verbose_logging=False, session_db=db,
         session_id=session_id, platform="cli", skip_context_files=True,
         load_soul_identity=True, skip_background_review=True, checkpoints_enabled=False,
-        fallback_model=None, run_budget_seconds=60,
+        fallback_model={"provider": "anthropic", "model": "claude-opus-5-5",
+                        "base_url": "https://api.anthropic.com", "api_key": fallback_credential["apiKey"]}
+                        if provider == "openai-codex" and request.get("allowFallback") is True else None,
+        run_budget_seconds=90,
     )
     if agent.tools:
         raise ValueError("Unexpected tools enabled")
@@ -187,12 +248,14 @@ def execute(request):
     finally:
         agent.close()
     output = result.get("final_response")
-    if result.get("failed") or result.get("partial") or not isinstance(output, str) or not output.strip() or len(calls) != 1:
+    if result.get("failed") or result.get("partial") or not isinstance(output, str) or not output.strip() or len(calls) != (2 if fallback_activated else 1):
         if offline:
             print(json.dumps({"fixtureResult": result, "calls": len(calls), "transportErrors": transport_errors}), file=sys.__stdout__)
         raise ValueError("Unverified native completion")
+    attempts[-1]["status"] = "completed"
+    save_attempts()
     return {"sessionId": agent.session_id, "output": output, "modelRequests": len(calls), "offline": offline,
-            "provider": provider,
+            "provider": agent.provider, "fallbackUsed": fallback_activated,
             "inputMessageCount": len(calls[0].get("input" if provider == "openai-codex" else "messages", []))}
 
 

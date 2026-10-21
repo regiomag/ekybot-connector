@@ -143,7 +143,12 @@ class HermesPilotJournal {
       };
       writeDurableJson(file, { ...record, status: 'started', before });
       started = true;
-      const result = await this.execute({ input: job.text, sessionId: binding?.sessionId ?? null });
+      const result = await this.execute({
+        input: job.text,
+        sessionId: binding?.sessionId ?? null,
+        jobId: job.id,
+        channelId: this.channelId,
+      });
       if (
         !NATIVE_ID.test(result?.sessionId || '') ||
         typeof result.output !== 'string' ||
