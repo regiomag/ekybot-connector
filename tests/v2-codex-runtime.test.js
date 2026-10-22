@@ -97,6 +97,28 @@ test('Codex completion before turn acknowledgement is reconciled by exact turn I
   );
 });
 
+test('pinned Codex tools are configured at creation, never silently replaced on resume', async () => {
+  const f = fixture();
+  const tools = [
+    {
+      name: 'ekybot_memory_search',
+      description: 'Fixture',
+      inputSchema: { type: 'object', properties: {} },
+    },
+  ];
+  f.runtime.development = { tools, instructions: 'Fixture only', bind() {} };
+  await f.runtime.execute({ input: 'First', sessionId: null, jobId: randomUUID() });
+  await f.runtime.execute({ input: 'Continue', sessionId: f.id, jobId: randomUUID() });
+  assert.equal(
+    f.calls.find((c) => c.method === 'thread/start').params.dynamicTools[0].name,
+    tools[0].name
+  );
+  const resumed = f.calls.find((c) => c.method === 'thread/resume').params;
+  assert.equal(Object.hasOwn(resumed, 'dynamicTools'), false);
+  assert.equal(Object.hasOwn(resumed, 'allowProviderModelFallback'), false);
+  assert.equal(resumed.threadId, f.id);
+});
+
 for (const options of [
   { status: 'failed' },
   { status: 'interrupted' },

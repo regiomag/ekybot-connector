@@ -5,10 +5,14 @@ const crypto = require('node:crypto');
 const { DevelopmentBroker } = require('../src/development-broker');
 const { openDevelopmentRuntime } = require('../src/development-runtime');
 const { runSandboxed } = require('../src/development-command');
+const { projectNotebook } = require('../src/project-notebook');
 
 async function main() {
   const engine = process.argv[2];
   const withCommand = process.argv.includes('--command');
+  const withNotebook = process.argv.includes('--notebook');
+  const noteId = crypto.randomUUID();
+  let noteReads = 0;
   const modelIndex = process.argv.indexOf('--model');
   const model = modelIndex < 0 ? undefined : process.argv[modelIndex + 1];
   if (!['codex', 'claude'].includes(engine)) {
@@ -27,7 +31,10 @@ async function main() {
       (withCommand
         ? 'Use ekybot_exec with command /usr/bin/xcodebuild and args ["-version"] to verify the Mac tools. Do not run any other command.'
         : 'Do not execute commands.') +
-      ' Do not use Git or delegate. Reply DEV_FILE_OK after checking the tool results.',
+      ' Do not use Git or delegate. Reply DEV_FILE_OK after checking the tool results.' +
+      (withNotebook
+        ? ' Also call ekybot_memory_search with query NOTE_FIXTURE, and report the returned note body, id and revision.'
+        : ''),
     'Use ekybot_read to inspect answer.txt. State its exact content, and the fixture code you remember from the previous turn. Do not edit files or execute commands.',
   ].entries()) {
     const runId = crypto.randomUUID();
@@ -44,6 +51,23 @@ async function main() {
         request.input.command === '/usr/bin/xcodebuild' &&
         JSON.stringify(request.input.args) === '["-version"]',
       event: async (event) => events.push(event),
+      ...(withNotebook
+        ? projectNotebook(async (operation) => {
+            if (operation !== 'search') {throw new Error('Read-only qualification');}
+            noteReads++;
+            return {
+              notes: [
+                {
+                  id: noteId,
+                  revision: 1,
+                  body: 'NOTE_FIXTURE_4286',
+                  source: 'Synthetic qualification',
+                  status: 'approved',
+                },
+              ],
+            };
+          })
+        : {}),
     });
     const runtime = await openDevelopmentRuntime({
       stateDir,
@@ -60,6 +84,13 @@ async function main() {
       }
       session = result.sessionId;
       usage.push(result.telemetry ?? null);
+      if (
+        withNotebook &&
+        index === 0 &&
+        (!noteReads || !result.output.includes('NOTE_FIXTURE_4286'))
+      ) {
+        throw new Error('Native notebook was not read');
+      }
       if (index === 1 && !result.output.includes('FIXTURE_7391')) {
         throw new Error('Native continuation did not recall fixture');
       }
@@ -78,6 +109,7 @@ async function main() {
       session,
       toolEvents: events.map((e) => ({ tool: e.tool, status: e.status })),
       usage,
+      noteReads,
     })
   );
 }

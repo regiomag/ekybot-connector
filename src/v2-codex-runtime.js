@@ -23,7 +23,7 @@ class CodexConversationRuntime {
     if (!rpc || typeof assertPolicy !== 'function' || typeof cwd !== 'string') {
       throw fail('CODEX_CONFIG_INVALID');
     }
-    if (model && !validModel(model)) throw fail('CODEX_MODEL_INVALID');
+    if (model && !validModel(model)) {throw fail('CODEX_MODEL_INVALID');}
     Object.assign(this, {
       rpc,
       cwd,
@@ -115,17 +115,22 @@ class CodexConversationRuntime {
     }
     await this.assertPolicy();
     const params = { cwd: this.cwd, approvalPolicy: 'never', sandbox: 'read-only' };
-    if (this.model) params.model = this.model;
+    if (this.model) {params.model = this.model;}
     if (this.instructions) {
       params.developerInstructions = this.instructions;
     }
     if (this.development) {
-      params.allowProviderModelFallback = false;
+      if (!sessionId) {params.allowProviderModelFallback = false;}
       if (this.development.permissions) {
         delete params.sandbox;
         params.permissions = this.development.permissions;
       }
-      params.dynamicTools = this.development.tools.map((t) => ({ ...t, type: 'function' }));
+      // Pinned 0.155.0 restores the tools captured at thread creation. Its
+      // ThreadResumeParams has no dynamicTools field; sending it is ignored.
+      // Never rewrite the rollout or start a replacement thread implicitly.
+      if (!sessionId) {
+        params.dynamicTools = this.development.tools.map((t) => ({ ...t, type: 'function' }));
+      }
       params.developerInstructions = this.development.instructions;
     }
     const result = sessionId
@@ -229,7 +234,7 @@ class CodexConversationRuntime {
             this.metrics.compactions = compactedItems.size;
           }
           if (method === 'model/rerouted')
-            this.metrics = telemetry({ ...this.metrics, model: params.toModel });
+            {this.metrics = telemetry({ ...this.metrics, model: params.toModel });}
         }
         if (method === 'ekybot/closed' || method === 'ekybot/approvalRequired') {
           end(fail('CODEX_TURN_UNCERTAIN'));
