@@ -18,16 +18,18 @@ if (
   throw new Error('Commit all release files first');
 }
 const base = path.join(os.homedir(), '.local/share/ekybot-v2');
-const state = path.join(base, 'development');
-const plist = path.join(os.homedir(), 'Library/LaunchAgents/com.ekybot.development-v2.plist');
+const kind = process.argv.includes('--missions') ? 'missions' : 'development';
+const label = `com.ekybot.${kind}-v2`;
+const state = path.join(base, kind);
+const plist = path.join(os.homedir(), 'Library/LaunchAgents', `${label}.plist`);
 const old = fs.readFileSync(plist, 'utf8');
 const parsed = JSON.parse(
   execFileSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', plist], { encoding: 'utf8' })
 );
 const previous = path.dirname(path.dirname(parsed.ProgramArguments[1]));
-const release = path.join(base, `development-companion-${revision.slice(0, 7)}`);
+const release = path.join(base, `${kind}-companion-${revision.slice(0, 7)}`);
 if (
-  !previous.startsWith(base + '/development-companion-') ||
+  !['development', 'missions'].some((k) => previous.startsWith(base + `/${k}-companion-`)) ||
   parsed.WorkingDirectory !== state ||
   fs.existsSync(release) ||
   fs.existsSync(path.join(state, 'worker.lock'))
@@ -56,10 +58,10 @@ execFileSync(
   ['-e', "require('./src/development-pool');require('./src/development-bmt')"],
   { cwd: release, stdio: 'ignore' }
 );
-if (process.argv[3] === '--already-stopped') {
+if (process.argv.includes('--already-stopped')) {
   let loaded = false;
   try {
-    execFileSync('/bin/launchctl', ['print', `gui/${process.getuid()}/com.ekybot.development-v2`], {
+    execFileSync('/bin/launchctl', ['print', `gui/${process.getuid()}/${label}`], {
       stdio: 'ignore',
     });
     loaded = true;

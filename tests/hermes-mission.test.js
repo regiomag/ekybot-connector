@@ -43,6 +43,11 @@ test('mission bridge exposes only scoped coordination and approved notebook tool
     'ekybot_mission_delegate',
     'ekybot_mission_status',
   ]);
+  await callToolServer(bridge.connection, {
+    name: 'ekybot_mission_status',
+    arguments: {},
+    callId: 'status-fixture',
+  });
   const request = {
     name: 'ekybot_mission_delegate',
     arguments: { target, task: 'Read the selected project' },

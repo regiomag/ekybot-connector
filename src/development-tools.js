@@ -75,7 +75,7 @@ function validateTool(name, input, available = tools) {
   if (!tool || !input || Array.isArray(input) || typeof input !== 'object') {
     throw new Error('Invalid development tool');
   }
-  const { properties, required } = tool.inputSchema;
+  const { properties, required = [] } = tool.inputSchema;
   if (
     Object.keys(input).some((k) => !Object.hasOwn(properties, k)) ||
     required.some((k) => !Object.hasOwn(input, k))
