@@ -27,6 +27,8 @@ class DevelopmentBroker {
     cancelled = async () => false,
     runCommand = runSandboxed,
     grants = { write: true, git: true, exec: true },
+    extensions = [],
+    instructions = '',
   }) {
     if (
       !path.isAbsolute(root) ||
@@ -48,6 +50,8 @@ class DevelopmentBroker {
       cancelled,
       runCommand,
       grants,
+      extensions,
+      instructions,
     });
     new HermesResumeGuard({ stateDir }).ensureDirectory();
     this.policy = { root, orchestrator: role === 'orchestrator', deniedRoots: [stateDir] };
@@ -62,21 +66,24 @@ class DevelopmentBroker {
       });
   }
   definitions() {
-    return tools.filter((t) => {
-      if (t.name === 'ekybot_edit' && !this.grants.write) {
-        return false;
-      }
-      if (t.name === 'ekybot_git' && !this.grants.git) {
-        return false;
-      }
-      if (t.name === 'ekybot_delegate') {
-        return this.role === 'orchestrator' && typeof this.delegate === 'function';
-      }
-      if (t.name === 'ekybot_exec') {
-        return this.grants.exec && this.grants.write && this.runCommand !== runSandboxed;
-      }
-      return true;
-    });
+    return [
+      ...tools.filter((t) => {
+        if (t.name === 'ekybot_edit' && !this.grants.write) {
+          return false;
+        }
+        if (t.name === 'ekybot_git' && !this.grants.git) {
+          return false;
+        }
+        if (t.name === 'ekybot_delegate') {
+          return this.role === 'orchestrator' && typeof this.delegate === 'function';
+        }
+        if (t.name === 'ekybot_exec') {
+          return this.grants.exec && this.grants.write && this.runCommand !== runSandboxed;
+        }
+        return true;
+      }),
+      ...this.extensions.map((e) => e.tool),
+    ];
   }
   call(name, input, callId = crypto.randomUUID()) {
     // Serialize effects in a working copy even if a native engine calls tools
@@ -86,7 +93,7 @@ class DevelopmentBroker {
     return result;
   }
   async perform(name, input, callId) {
-    validateTool(name, input);
+    validateTool(name, input, [...tools, ...this.extensions.map((e) => e.tool)]);
     if (!this.definitions().some((tool) => tool.name === name)) {
       throw new Error('Tool not granted to this session');
     }
@@ -125,9 +132,11 @@ class DevelopmentBroker {
       }
       return previous.result;
     }
-    const mutation =
-      ['ekybot_edit', 'ekybot_exec', 'ekybot_delegate'].includes(name) ||
-      (name === 'ekybot_git' && ['commit', 'push'].includes(input.operation));
+    const extension = this.extensions.find((e) => e.tool.name === name);
+    const mutation = extension
+      ? extension.mutation(input)
+      : ['ekybot_edit', 'ekybot_exec', 'ekybot_delegate'].includes(name) ||
+        (name === 'ekybot_git' && ['commit', 'push'].includes(input.operation));
     if (mutation && this.uncertain) {
       throw new Error('Previous tool outcome uncertain; only inspection is allowed for this run');
     }
@@ -144,7 +153,14 @@ class DevelopmentBroker {
     writeDurableJson(receiptFile, record);
     try {
       let result;
-      if (name === 'ekybot_projects') {
+      if (extension) {
+        result = await extension.execute(input, {
+          id,
+          approve: this.approve,
+          cancelled: this.cancelled,
+          root: this.root,
+        });
+      } else if (name === 'ekybot_projects') {
         result = { projects: this.projects, workingDirectory: this.root, role: this.role };
       } else if (name === 'ekybot_list') {
         result = listDirectory(this.policy, input);

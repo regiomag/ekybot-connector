@@ -12,6 +12,7 @@ const { permittedPath, digest } = require('./development-files');
 const { DevelopmentBroker } = require('./development-broker');
 const { openDevelopmentRuntime } = require('./development-runtime');
 const { runSandboxed } = require('./development-command');
+const { developmentBmt } = require('./development-bmt');
 
 function verifyProject(project, home = os.homedir()) {
   if (
@@ -49,6 +50,7 @@ async function runDevelopmentTick({
   slot,
   openRuntime = openDevelopmentRuntime,
   publish = true,
+  bmtKeyFile = path.join(path.dirname(stateDir), 'bmt', 'enrollment-key.json'),
 }) {
   if (
     ![stateDir, machineFile].every((value) => typeof value === 'string' && path.isAbsolute(value))
@@ -195,7 +197,16 @@ async function runDevelopmentTick({
       throw new Error('Work access revoked');
     }
     heartbeat = setInterval(() => void work('heartbeat', { runId: job.id }).catch(() => {}), 30000);
+    const bmt = config.bmtConnections?.length
+      ? developmentBmt({
+          connections: config.bmtConnections,
+          access: (connectionId) => work('bmt-access', { runId: job.id, connectionId }),
+          pair: readPrivateJson(bmtKeyFile),
+        })
+      : {};
+    await bmt.assertAccess?.();
     const broker = new DevelopmentBroker({
+      ...bmt,
       root: binding.path,
       stateDir: path.join(stateDir, 'tools', job.id),
       runId: job.id,

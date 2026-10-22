@@ -24,7 +24,10 @@ async function openDevelopmentRuntime({
   }
   const root = path.join(stateDir, 'sessions', channelId, engine);
   new HermesResumeGuard({ stateDir: root }).ensureDirectory();
-  const development = { tools: broker.definitions(), instructions: instructions(broker) };
+  const development = {
+    tools: broker.definitions(),
+    instructions: instructions(broker) + (broker.instructions ? `\n${broker.instructions}` : ''),
+  };
   let connection, ipc, runtime;
   if (engine === 'codex') {
     const policy = codexDevelopmentPolicy(broker.root, root, broker.grants.write);

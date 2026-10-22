@@ -48,6 +48,7 @@ async function runDevelopmentPool({
     return { status: 'worker-locked' };
   }
   const until = Date.now() + durationMs;
+  let nextPublish = 0;
   try {
     await Promise.all(
       [0, 1, 2].map(async (slot) => {
@@ -62,7 +63,11 @@ async function runDevelopmentPool({
         }
         do {
           try {
-            await tick({ ...options, slot, publish: slot === 0 });
+            const publish = slot === 0 && Date.now() >= nextPublish;
+            if (publish) {
+              nextPublish = Date.now() + 30000;
+            }
+            await tick({ ...options, slot, publish });
           } catch {
             /* Redacted errors stay local to this slot; no turn replay. */
           }

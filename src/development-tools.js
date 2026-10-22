@@ -70,8 +70,8 @@ const tools = definitions.map(([suffix, description, inputSchema]) => ({
   description,
   inputSchema,
 }));
-function validateTool(name, input) {
-  const tool = tools.find((t) => t.name === name);
+function validateTool(name, input, available = tools) {
+  const tool = available.find((t) => t.name === name);
   if (!tool || !input || Array.isArray(input) || typeof input !== 'object') {
     throw new Error('Invalid development tool');
   }
