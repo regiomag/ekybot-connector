@@ -3,19 +3,12 @@ const path = require('node:path');
 const os = require('node:os');
 const { readPrivateJson, writeDurableJson, HermesResumeGuard } = require('./hermes-resume-guard');
 const { readClaudeStatus } = require('./v2-claude-login');
-const {
-  ClaudeConversationRuntime,
-  POLICY: CLAUDE_POLICY,
-  assertClaudeContinuation,
-} = require('./v2-claude-runtime');
+const { ClaudeConversationRuntime, POLICY: CLAUDE_POLICY } = require('./v2-claude-runtime');
 const { createMachineClient } = require('./v2-machine-client');
-const { DurableConversationJournal, pilotTick } = require('./hermes-pilot-journal');
+const { pilotTick } = require('./hermes-pilot-journal');
+const { createNativeConversationJournal } = require('./native-conversation');
 const { openCodexChatConnection } = require('./v2-codex-connection');
-const {
-  CodexConversationRuntime,
-  validSessionId,
-  assertCodexContinuation,
-} = require('./v2-codex-runtime');
+const { CodexConversationRuntime, validSessionId } = require('./v2-codex-runtime');
 
 // No provider secrets in this config. Only the existing scoped machine file path
 // and a private V2 state root are required. Existing Hermes worker is untouched.
@@ -87,16 +80,13 @@ async function runNativeTick({
       }
       return runtime;
     };
-    return new DurableConversationJournal({
+    return createNativeConversationJournal({
+      engine,
       stateDir: path.join(root, 'journal'),
       channelId: id,
       profile: engine === 'claude' ? CLAUDE_POLICY : 'codex-chat-v1',
       homeRoot: home,
-      assertFresh: async () => {},
-      validSessionId,
-      assertContinuation: engine === 'claude' ? assertClaudeContinuation : assertCodexContinuation,
-      inspectSession: async (args) => (await getRuntime()).inspectSession(args),
-      execute: async (args) => (await getRuntime()).execute(args),
+      getRuntime,
     });
   };
   try {

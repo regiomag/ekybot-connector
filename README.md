@@ -184,6 +184,37 @@ EKYBOT_COMPANION_BUDGET_EXCEEDED_ACTION=log  # or "block"
 
 ## Docs
 
+### Shared native conversation journal
+
+`src/native-conversation.js` is the shared entry point used by the native-chat,
+BMT and development adapters. It preserves the existing private journal format,
+native continuation proofs and uncertain-outcome behavior; it does not introduce
+another session store or grant additional tools.
+
+New multi-user consumers should use `createScopedNativeConversationJournal({
+scope, stateDir, homeRoot, getRuntime })`. The authenticated server supplies the
+scope: `engine` (`codex` or `claude`), UUIDs `ownerId`, `projectId`, `agentId`,
+`channelId`, `connectionId`, plus `grantRevision` and `policyVersion` strings.
+The resulting binding is incompatible with another owner, project, connection,
+engine or consent revision. Use a private, stable journal directory per channel;
+never change the scope to resume an existing channel. Cowork is not a supported
+native adapter.
+
+`getRuntime` lazily returns an adapter with `execute` and `inspectSession`.
+Reading and delivering the outbox never opens the runtime. A failed opening is
+not retried automatically, and an unverified turn requires reconciliation.
+Existing pilot callers retain their original profile names and histories.
+
+This is a persistence boundary, **not** server authorization, a provider sign-in
+flow, or a complete BMT integration. Callers must recheck live permissions before
+exposing context and before each tool action. Provider credential isolation and
+commercial authentication approval remain separate integration requirements.
+
+Tests: `node --test tests/native-conversation.test.js`. On this Mac, the full
+offline suite uses `EKYBOT_PROBE_PYTHON=/opt/homebrew/bin/python3 npm test` and
+requires localhost sockets for simulated authentication. Native Hermes fixtures
+remain opt-in; no real account or model call is required by the new tests.
+
 - `docs/onboarding.md`
 - `docs/architecture.md`
 - `docs/migration-v1-v2.md`

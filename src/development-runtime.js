@@ -1,14 +1,10 @@
 const path = require('node:path');
 const os = require('node:os');
 const { HermesResumeGuard } = require('./hermes-resume-guard');
-const { DurableConversationJournal } = require('./hermes-pilot-journal');
+const { createNativeConversationJournal } = require('./native-conversation');
 const { openCodexChatConnection } = require('./v2-codex-connection');
-const {
-  CodexConversationRuntime,
-  validSessionId,
-  assertCodexContinuation,
-} = require('./v2-codex-runtime');
-const { ClaudeConversationRuntime, assertClaudeContinuation } = require('./v2-claude-runtime');
+const { CodexConversationRuntime, validSessionId } = require('./v2-codex-runtime');
+const { ClaudeConversationRuntime } = require('./v2-claude-runtime');
 const { startToolServer } = require('./development-ipc');
 const { codexDevelopmentPolicy } = require('./development-codex-policy');
 
@@ -90,16 +86,13 @@ async function openDevelopmentRuntime({
       model,
     });
   }
-  const journal = new DurableConversationJournal({
+  const journal = createNativeConversationJournal({
+    engine,
     stateDir: path.join(root, 'journal'),
     channelId,
     profile: `development-${engine}-v1`,
     homeRoot: home,
-    assertFresh: async () => {},
-    validSessionId,
-    assertContinuation: engine === 'claude' ? assertClaudeContinuation : assertCodexContinuation,
-    execute: (args) => runtime.execute(args),
-    inspectSession: (args) => runtime.inspectSession(args),
+    getRuntime: () => runtime,
   });
   return {
     journal,

@@ -2,18 +2,15 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const { HermesResumeGuard, writeDurableJson } = require('./hermes-resume-guard');
-const { DurableConversationJournal, HermesPilotJournal } = require('./hermes-pilot-journal');
+const { HermesPilotJournal } = require('./hermes-pilot-journal');
+const { createNativeConversationJournal } = require('./native-conversation');
 const { createFreshProfile, planFreshProfile } = require('./hermes-fresh-profile');
 const { readActivation, invokeNative, readOpenAICredential } = require('./hermes-pilot-executor');
 const { readAnthropicCredential } = require('./hermes-pilot-profile');
 const { buildPilotExecutionConfig } = require('./hermes-pilot-routing');
 const { openCodexChatConnection } = require('./v2-codex-connection');
-const {
-  CodexConversationRuntime,
-  validSessionId,
-  assertCodexContinuation,
-} = require('./v2-codex-runtime');
-const { ClaudeConversationRuntime, assertClaudeContinuation } = require('./v2-claude-runtime');
+const { CodexConversationRuntime, validSessionId } = require('./v2-codex-runtime');
+const { ClaudeConversationRuntime } = require('./v2-claude-runtime');
 const { hash } = require('./bmt-broker');
 const { policy } = require('./bmt-policy');
 
@@ -80,17 +77,13 @@ async function openBmtRuntime({ stateDir, chatId, agent, hermesSource = {}, home
           effort: 'low',
           instructions: policy,
         });
-  const journal = new DurableConversationJournal({
+  const journal = createNativeConversationJournal({
+    engine: agent.engine,
     stateDir: path.join(root, 'journal'),
     channelId: chatId,
     profile: `bmt-${agent.engine}-v1`,
     homeRoot: home,
-    assertFresh: async () => {},
-    validSessionId,
-    assertContinuation:
-      agent.engine === 'claude' ? assertClaudeContinuation : assertCodexContinuation,
-    execute: (args) => runtime.execute(args),
-    inspectSession: (args) => runtime.inspectSession(args),
+    getRuntime: () => runtime,
   });
   return { journal, close: () => connection?.rpc.close() };
 }
