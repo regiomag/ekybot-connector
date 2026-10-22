@@ -6,6 +6,8 @@ const { loginEnvironment, readClaudeStatus } = require('./v2-claude-login');
 const { assertNoSymlinkChain, assertPrivate } = require('./hermes-fresh-profile');
 const { validSessionId } = require('./v2-codex-runtime');
 const { policy: bmtPolicy } = require('./bmt-policy');
+const { telemetry } = require('./native-telemetry');
+const { validModel } = require('./native-model-id');
 
 const fail = () => new Error('Claude native conversation could not be verified.');
 const hash = (value) => crypto.createHash('sha256').update(value).digest('hex');
@@ -190,7 +192,7 @@ class ClaudeConversationRuntime {
     if (![cwd, home].every((p) => typeof p === 'string' && path.isAbsolute(p))) {
       throw fail();
     }
-    if (model && !/^[a-zA-Z0-9._:-]{1,100}$/.test(model)) throw fail();
+    if (model && !validModel(model)) throw fail();
     Object.assign(this, { cwd, home, status, spawnImpl, timeoutMs, bmt, development, model });
   }
 
@@ -273,10 +275,11 @@ class ClaudeConversationRuntime {
     } else if (after.users !== 1) {
       throw fail();
     }
-    return { sessionId: id, output: result };
+    return { sessionId: id, output: result, telemetry: this.metrics };
   }
 
   run({ input, jobId, sessionId, resume }) {
+    this.metrics = telemetry();
     return new Promise((resolve, reject) => {
       let bytes = 0,
         buffer = '',
@@ -347,6 +350,7 @@ class ClaudeConversationRuntime {
                 throw fail();
               }
               assertInitialization(event, this.cwd, sessionId, this.development);
+              this.metrics = telemetry({ ...this.metrics, model: event.model });
               initialized = true;
             } else if (event.type === 'user') {
               if (
@@ -384,6 +388,14 @@ class ClaudeConversationRuntime {
                 throw fail();
               }
               final = event.result;
+              const usage = event.usage;
+              this.metrics = telemetry({
+                ...this.metrics,
+                inputTokens: usage?.input_tokens,
+                outputTokens: usage?.output_tokens,
+                cachedInputTokens: usage?.cache_read_input_tokens,
+                contextWindow: event.modelUsage?.[this.metrics.model]?.contextWindow,
+              });
             } else if (event.type === 'assistant') {
               if (
                 !initialized ||

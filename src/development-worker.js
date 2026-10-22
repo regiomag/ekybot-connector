@@ -14,6 +14,7 @@ const { openDevelopmentRuntime } = require('./development-runtime');
 const { runSandboxed } = require('./development-command');
 const { developmentBmt } = require('./development-bmt');
 const { projectNotebook, combineExtensions } = require('./project-notebook');
+const { discoverModels } = require('./native-models');
 
 function verifyProject(project, home = os.homedir()) {
   if (
@@ -51,6 +52,7 @@ async function runDevelopmentTick({
   slot,
   openRuntime = openDevelopmentRuntime,
   publish = true,
+  modelCatalog = discoverModels,
   bmtKeyFile = path.join(path.dirname(stateDir), 'bmt', 'enrollment-key.json'),
 }) {
   if (
@@ -121,6 +123,9 @@ async function runDevelopmentTick({
       }
     }
     if (publish) {
+      if (!injected || modelCatalog !== discoverModels) {
+        await work('models', await modelCatalog({ stateDir, home }));
+      }
       let xcode = null;
       try {
         xcode = execFileSync('/usr/bin/xcodebuild', ['-version'], {

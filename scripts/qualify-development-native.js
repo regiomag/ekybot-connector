@@ -9,6 +9,8 @@ const { runSandboxed } = require('../src/development-command');
 async function main() {
   const engine = process.argv[2];
   const withCommand = process.argv.includes('--command');
+  const modelIndex = process.argv.indexOf('--model');
+  const model = modelIndex < 0 ? undefined : process.argv[modelIndex + 1];
   if (!['codex', 'claude'].includes(engine)) {
     throw new Error('Choose one explicit engine');
   }
@@ -17,7 +19,8 @@ async function main() {
   fs.mkdirSync(root, { mode: 0o700 });
   fs.writeFileSync(path.join(root, 'fixture.txt'), 'FIXTURE_7391\n', { mode: 0o600 });
   const channelId = crypto.randomUUID(),
-    events = [];
+    events = [],
+    usage = [];
   let session;
   for (const [index, text] of [
     'Use ekybot_read to read fixture.txt. Use ekybot_edit to create answer.txt containing exactly the fixture text. ' +
@@ -48,6 +51,7 @@ async function main() {
       engine,
       broker,
       home: os.homedir(),
+      model,
     });
     try {
       const result = await runtime.journal.run({ id: runId, channelId, text });
@@ -55,6 +59,7 @@ async function main() {
         throw new Error('Native session changed');
       }
       session = result.sessionId;
+      usage.push(result.telemetry ?? null);
       if (index === 1 && !result.output.includes('FIXTURE_7391')) {
         throw new Error('Native continuation did not recall fixture');
       }
@@ -72,6 +77,7 @@ async function main() {
       stateDir,
       session,
       toolEvents: events.map((e) => ({ tool: e.tool, status: e.status })),
+      usage,
     })
   );
 }

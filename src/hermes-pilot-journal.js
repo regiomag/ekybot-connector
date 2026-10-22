@@ -11,6 +11,7 @@ const {
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const NATIVE_ID = /^\d{8}_\d{6}_[a-f0-9]{6}$/;
+const { telemetry } = require('./native-telemetry');
 const fail = (code) =>
   safetyError(code, 'Pilot stopped safely; inspect the private journal before retrying.');
 
@@ -192,6 +193,7 @@ class DurableConversationJournal {
         delivered: false,
         before,
         after,
+        ...(result.telemetry ? { telemetry: telemetry(result.telemetry) } : {}),
       };
       writeDurableJson(file, receipt);
       fs.unlinkSync(lockPath);
@@ -259,6 +261,7 @@ async function pilotTick({ journal, machine }) {
       runId: receipt.id,
       content: receipt.output,
       sessionId: receipt.sessionId,
+      ...(receipt.telemetry ? { telemetry: receipt.telemetry } : {}),
     });
     if (response?.ok !== true) {
       throw fail('PILOT_DELIVERY_UNCONFIRMED');

@@ -1,4 +1,6 @@
 const crypto = require('node:crypto');
+const { telemetry } = require('./native-telemetry');
+const { validModel } = require('./native-model-id');
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const hash = (text) => crypto.createHash('sha256').update(text).digest('hex');
@@ -21,7 +23,7 @@ class CodexConversationRuntime {
     if (!rpc || typeof assertPolicy !== 'function' || typeof cwd !== 'string') {
       throw fail('CODEX_CONFIG_INVALID');
     }
-    if (model && !/^[a-zA-Z0-9._:-]{1,100}$/.test(model)) throw fail('CODEX_MODEL_INVALID');
+    if (model && !validModel(model)) throw fail('CODEX_MODEL_INVALID');
     Object.assign(this, {
       rpc,
       cwd,
@@ -138,6 +140,7 @@ class CodexConversationRuntime {
           serviceName: 'ekybot-v2',
         });
     const thread = this.checkThread(result.thread, sessionId);
+    this.metrics = telemetry({ model: result.model });
     if (this.development) {
       this.development.bind(thread.id);
     }
@@ -171,13 +174,14 @@ class CodexConversationRuntime {
     ) {
       throw fail('CODEX_RESULT_UNVERIFIED');
     }
-    return { sessionId: thread.id, output: finals[0].text };
+    return { sessionId: thread.id, output: finals[0].text, telemetry: this.metrics };
   }
 
   runTurn(threadId, jobId, input) {
     return new Promise((resolve, reject) => {
       let turnId;
       let completion;
+      const compactedItems = new Set();
       let finished = false;
       const end = (error) => {
         if (finished) {
@@ -204,6 +208,29 @@ class CodexConversationRuntime {
         }
       };
       const unsubscribe = this.rpc.onEvent(({ method, params }) => {
+        if (params?.threadId === threadId) {
+          if (method === 'thread/tokenUsage/updated') {
+            const usage = params.tokenUsage;
+            this.metrics = telemetry({
+              ...this.metrics,
+              inputTokens: usage?.total?.inputTokens,
+              outputTokens: usage?.total?.outputTokens,
+              cachedInputTokens: usage?.total?.cachedInputTokens,
+              contextTokens: usage?.last?.totalTokens,
+              contextWindow: usage?.modelContextWindow,
+            });
+          }
+          if (
+            method === 'item/completed' &&
+            params.item?.type === 'contextCompaction' &&
+            typeof params.item.id === 'string'
+          ) {
+            compactedItems.add(params.item.id);
+            this.metrics.compactions = compactedItems.size;
+          }
+          if (method === 'model/rerouted')
+            this.metrics = telemetry({ ...this.metrics, model: params.toModel });
+        }
         if (method === 'ekybot/closed' || method === 'ekybot/approvalRequired') {
           end(fail('CODEX_TURN_UNCERTAIN'));
           return;
