@@ -56,7 +56,18 @@ execFileSync(
   ['-e', "require('./src/development-pool');require('./src/development-bmt')"],
   { cwd: release, stdio: 'ignore' }
 );
-execFileSync('/bin/launchctl', ['bootout', `gui/${process.getuid()}`, plist]);
+if (process.argv[3] === '--already-stopped') {
+  let loaded = false;
+  try {
+    execFileSync('/bin/launchctl', ['print', `gui/${process.getuid()}/com.ekybot.development-v2`], {
+      stdio: 'ignore',
+    });
+    loaded = true;
+  } catch {
+    /* Explicitly drained and stopped by the operator. */
+  }
+  if (loaded) throw new Error('Expected an unloaded service');
+} else execFileSync('/bin/launchctl', ['bootout', `gui/${process.getuid()}`, plist]);
 if (fs.existsSync(path.join(state, 'worker.lock'))) {
   execFileSync('/bin/launchctl', ['bootstrap', `gui/${process.getuid()}`, plist]);
   throw new Error('Worker was running; service left unchanged');
