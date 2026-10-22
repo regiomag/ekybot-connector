@@ -36,8 +36,8 @@ if (
 }
 if (
   !fs
-    .readFileSync(path.join(previous, 'package-lock.json'))
-    .equals(fs.readFileSync(path.join(repo, 'package-lock.json')))
+    .readFileSync(path.join(previous, 'npm-shrinkwrap.json'))
+    .equals(fs.readFileSync(path.join(repo, 'npm-shrinkwrap.json')))
 ) {
   throw new Error('Dependencies changed; build a qualified installation first');
 }
