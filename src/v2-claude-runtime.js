@@ -8,6 +8,7 @@ const { validSessionId } = require('./v2-codex-runtime');
 const { policy: bmtPolicy } = require('./bmt-policy');
 const { telemetry } = require('./native-telemetry');
 const { validModel } = require('./native-model-id');
+const { compactionBoundary, compactionStatus, retryStatus } = require('./claude-compaction');
 
 const fail = () => new Error('Claude native conversation could not be verified.');
 const hash = (value) => crypto.createHash('sha256').update(value).digest('hex');
@@ -118,7 +119,7 @@ function readTranscript(home, cwd, sessionId, development = false) {
   const file = transcriptPath(home, cwd, sessionId);
   assertNoSymlinkChain(file);
   const stat = fs.statSync(file);
-  if (!stat.isFile() || stat.size > 8 * 1024 * 1024 || stat.uid !== process.getuid()) {
+  if (!stat.isFile() || stat.size > 32 * 1024 * 1024 || stat.uid !== process.getuid()) {
     throw fail();
   }
   const rows = fs
@@ -130,6 +131,29 @@ function readTranscript(home, cwd, sessionId, development = false) {
     throw fail();
   }
   const messages = rows.filter((row) => ['user', 'assistant'].includes(row.type));
+  const boundaries = rows
+    .filter((row) => row.type === 'system' && row.subtype === 'compact_boundary')
+    .map((row) => {
+      if (
+        row.cwd !== cwd ||
+        row.sessionId !== sessionId ||
+        row.version !== '2.1.285' ||
+        row.isSidechain !== false
+      ) {
+        throw fail();
+      }
+      const boundary = compactionBoundary(row, true);
+      const position = rows.indexOf(row);
+      if (
+        !rows.slice(0, position).some((r) => r.uuid === boundary.logicalParent) ||
+        !rows
+          .slice(position + 1)
+          .some((r) => r.uuid === boundary.anchor && r.isCompactSummary === true)
+      ) {
+        throw fail();
+      }
+      return { ...boundary, hash: hash(JSON.stringify(row)) };
+    });
   if (
     !messages.length ||
     messages.some(
@@ -140,6 +164,17 @@ function readTranscript(home, cwd, sessionId, development = false) {
         row.sessionId !== sessionId ||
         row.version !== '2.1.285' ||
         !row.message ||
+        (row.isCompactSummary !== undefined &&
+          (row.isCompactSummary !== true ||
+            row.type !== 'user' ||
+            row.isVisibleInTranscriptOnly !== true ||
+            (typeof row.message.content !== 'string' &&
+              (!Array.isArray(row.message.content) ||
+                !row.message.content.length ||
+                row.message.content.some(
+                  (p) => p.type !== 'text' || typeof p.text !== 'string'
+                ))) ||
+            boundaries.filter((b) => b.anchor === row.uuid).length !== 1)) ||
         row.message.role !== row.type ||
         (Array.isArray(row.message.content) &&
           row.message.content.some(
@@ -152,7 +187,7 @@ function readTranscript(home, cwd, sessionId, development = false) {
   ) {
     throw fail();
   }
-  return { messages, identity: `${stat.dev}:${stat.ino}`, file };
+  return { messages, boundaries, identity: `${stat.dev}:${stat.ino}`, file };
 }
 
 function textContent(content) {
@@ -169,6 +204,8 @@ function assertClaudeContinuation(before, after) {
     before.sessionId !== after.sessionId ||
     before.cwd !== after.cwd ||
     before.identity !== after.identity ||
+    JSON.stringify(before.boundaries || []) !==
+      JSON.stringify((after.boundaries || []).slice(0, (before.boundaries || []).length)) ||
     after.messages.length <= before.messages.length ||
     after.users !== before.users + 1 ||
     JSON.stringify(before.messages) !==
@@ -192,12 +229,14 @@ class ClaudeConversationRuntime {
     if (![cwd, home].every((p) => typeof p === 'string' && path.isAbsolute(p))) {
       throw fail();
     }
-    if (model && !validModel(model)) throw fail();
+    if (model && !validModel(model)) {
+      throw fail();
+    }
     Object.assign(this, { cwd, home, status, spawnImpl, timeoutMs, bmt, development, model });
   }
 
   inspectSession({ sessionId }) {
-    const { messages, identity } = readTranscript(
+    const { messages, boundaries, identity } = readTranscript(
       this.home,
       this.cwd,
       sessionId,
@@ -216,12 +255,14 @@ class ClaudeConversationRuntime {
       users: messages.filter(
         (m) =>
           m.type === 'user' &&
+          !m.isCompactSummary &&
           !(
             Array.isArray(m.message.content) &&
             m.message.content.some((p) => p.type === 'tool_result')
           )
       ).length,
       messages: messages.map((row) => ({ uuid: row.uuid, hash: hash(JSON.stringify(row)) })),
+      boundaries,
     };
   }
 
@@ -250,13 +291,27 @@ class ClaudeConversationRuntime {
     const lastUser = saved.messages.findLastIndex(
       (row) =>
         row.type === 'user' &&
+        !row.isCompactSummary &&
         !(
           Array.isArray(row.message.content) &&
           row.message.content.some((p) => p.type === 'tool_result')
         )
     );
     const user = saved.messages[lastUser];
-    const answers = saved.messages.slice(lastUser + 1);
+    const answers = saved.messages.slice(lastUser + 1).filter((row) => !row.isCompactSummary);
+    for (const evidence of this.compactionEvidence.values()) {
+      const boundary = saved.boundaries.find((b) => b.id === evidence.id);
+      const summary = saved.messages.find((m) => m.uuid === evidence.anchor && m.isCompactSummary);
+      if (
+        !boundary ||
+        boundary.anchor !== evidence.anchor ||
+        boundary.logicalParent !== evidence.logicalParent ||
+        !summary ||
+        hash(textContent(summary.message.content)) !== evidence.summaryHash
+      ) {
+        throw fail();
+      }
+    }
     if (
       user?.uuid !== jobId ||
       textContent(user.message.content) !== input ||
@@ -280,6 +335,7 @@ class ClaudeConversationRuntime {
 
   run({ input, jobId, sessionId, resume }) {
     this.metrics = telemetry();
+    this.compactionEvidence = new Map();
     return new Promise((resolve, reject) => {
       let bytes = 0,
         buffer = '',
@@ -352,7 +408,50 @@ class ClaudeConversationRuntime {
               assertInitialization(event, this.cwd, sessionId, this.development);
               this.metrics = telemetry({ ...this.metrics, model: event.model });
               initialized = true;
+            } else if (event.type === 'system' && event.subtype === 'compact_boundary') {
+              if (
+                !initialized ||
+                final !== undefined ||
+                event.session_id !== sessionId ||
+                this.compactionEvidence.size >= 8
+              ) {
+                throw fail();
+              }
+              const boundary = compactionBoundary(event);
+              if (this.compactionEvidence.has(boundary.id)) {
+                throw fail();
+              }
+              this.compactionEvidence.set(boundary.id, boundary);
+              this.metrics = telemetry({
+                ...this.metrics,
+                compactions: this.compactionEvidence.size,
+              });
+            } else if (compactionStatus(event) || retryStatus(event)) {
+              if (!initialized || final !== undefined || event.session_id !== sessionId) {
+                throw fail();
+              }
+              // Native progress/retry only; Ekybot does not repeat the request.
             } else if (event.type === 'user') {
+              if (event.isSynthetic === true) {
+                const boundary = [...this.compactionEvidence.values()].find(
+                  (b) => b.anchor === event.uuid
+                );
+                if (
+                  !initialized ||
+                  !boundary ||
+                  boundary.summaryHash ||
+                  event.session_id !== sessionId ||
+                  event.parent_tool_use_id !== null ||
+                  event.message?.role !== 'user' ||
+                  !Array.isArray(event.message.content) ||
+                  !event.message.content.length ||
+                  event.message.content.some((p) => p.type !== 'text' || typeof p.text !== 'string')
+                ) {
+                  throw fail();
+                }
+                boundary.summaryHash = hash(textContent(event.message.content));
+                continue;
+              }
               if (
                 this.development &&
                 Array.isArray(event.message?.content) &&
@@ -383,7 +482,8 @@ class ClaudeConversationRuntime {
                 event.user_message_uuid !== jobId ||
                 typeof event.result !== 'string' ||
                 !event.result.trim() ||
-                event.result.length > 50000
+                event.result.length > 50000 ||
+                [...this.compactionEvidence.values()].some((b) => !b.summaryHash)
               ) {
                 throw fail();
               }

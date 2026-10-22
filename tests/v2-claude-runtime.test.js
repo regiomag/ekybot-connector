@@ -11,6 +11,7 @@ const {
   assertInitialization,
   transcriptPath,
   assertClaudeContinuation,
+  readTranscript,
 } = require('../src/v2-claude-runtime');
 
 test('Claude native invocation disables tools, inherited settings and API credentials', () => {
@@ -101,6 +102,52 @@ test('Claude stream requires exact input acknowledgement, successful result and 
     'hi',
     'UTF-8 split across arbitrary pipe chunks preserves the exact acknowledgement'
   );
+  const anchor = randomUUID(),
+    boundaryId = randomUUID();
+  const boundary = {
+    type: 'system',
+    subtype: 'compact_boundary',
+    session_id: sessionId,
+    uuid: boundaryId,
+    logical_parent_uuid: randomUUID(),
+    compact_metadata: {
+      trigger: 'auto',
+      pre_tokens: 17000,
+      post_tokens: 3000,
+      preserved_messages: { anchor_uuid: anchor },
+    },
+  };
+  const summary = {
+    type: 'user',
+    session_id: sessionId,
+    uuid: anchor,
+    isSynthetic: true,
+    parent_tool_use_id: null,
+    message: { role: 'user', content: [{ type: 'text', text: 'Native summary' }] },
+  };
+  const compactRun = new ClaudeConversationRuntime({
+    cwd,
+    home: '/private/tmp/fixture-home',
+    spawnImpl: fakeProcess([
+      init,
+      { type: 'system', subtype: 'status', status: 'compacting', session_id: sessionId },
+      user,
+      boundary,
+      summary,
+      result,
+    ]),
+  });
+  assert.equal(await compactRun.run({ input, jobId, sessionId, resume: true }), 'hi');
+  assert.equal(compactRun.metrics.compactions, 1);
+  for (const bad of [
+    [init, user, summary, result],
+    [init, user, boundary, result],
+    [init, user, boundary, { ...summary, uuid: randomUUID() }, result],
+    [init, user, boundary, summary, summary, result],
+    [init, user, { ...boundary, compact_metadata: {} }, summary, result],
+  ]) {
+    await assert.rejects(run(bad));
+  }
   for (const events of [
     [init, result],
     [init, user],
@@ -177,4 +224,67 @@ test('Claude persistence is scoped to the exact project and refuses rewrites or 
     assertClaudeContinuation(before, { ...after, messages: after.messages.slice(1) })
   );
   assert.throws(() => runtime.inspectSession({ sessionId: randomUUID() }));
+  const boundaryId = randomUUID(),
+    summaryId = randomUUID();
+  const boundary = {
+    type: 'system',
+    subtype: 'compact_boundary',
+    uuid: boundaryId,
+    logicalParentUuid: rows[1].uuid,
+    sessionId: id,
+    cwd,
+    version: '2.1.285',
+    isSidechain: false,
+    compactMetadata: {
+      trigger: 'auto',
+      preTokens: 17000,
+      postTokens: 3000,
+      preservedMessages: { anchorUuid: summaryId },
+    },
+  };
+  const summary = {
+    ...rows[0],
+    uuid: summaryId,
+    isCompactSummary: true,
+    isVisibleInTranscriptOnly: true,
+    message: { role: 'user', content: 'Synthetic native summary' },
+  };
+  fs.appendFileSync(
+    file,
+    [boundary, summary, ...rows.map((row) => ({ ...row, uuid: randomUUID() }))]
+      .map(JSON.stringify)
+      .join('\n') + '\n'
+  );
+  const compacted = runtime.inspectSession({ sessionId: id });
+  assert.equal(compacted.users, after.users + 1);
+  assert.equal(compacted.boundaries.length, 1);
+  assert.doesNotThrow(() => assertClaudeContinuation(after, compacted));
+  assert.throws(() =>
+    assertClaudeContinuation(
+      { ...compacted, messages: compacted.messages.slice(0, -1) },
+      {
+        ...compacted,
+        boundaries: [{ ...compacted.boundaries[0], hash: 'tampered' }],
+        users: compacted.users + 1,
+      }
+    )
+  );
+  const valid = fs.readFileSync(file, 'utf8');
+  fs.writeFileSync(
+    file,
+    valid.replace(
+      JSON.stringify(summary),
+      JSON.stringify({
+        ...summary,
+        message: {
+          role: 'user',
+          content: [{ type: 'tool_use', id: 'injected', name: 'file', input: {} }],
+        },
+      })
+    )
+  );
+  assert.throws(() => readTranscript(root, cwd, id, true), 'A summary cannot carry tool calls');
+  fs.writeFileSync(file, valid);
+  fs.appendFileSync(file, JSON.stringify({ ...summary, uuid: randomUUID() }) + '\n');
+  assert.throws(() => readTranscript(root, cwd, id), 'Unbound summaries must fail closed');
 });

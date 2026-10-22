@@ -18,6 +18,8 @@ async function openDevelopmentRuntime({
   broker,
   model,
   home = os.homedir(),
+  connectCodex = openCodexChatConnection,
+  createClaude = (options) => new ClaudeConversationRuntime(options),
 }) {
   if (!validSessionId(channelId) || !['codex', 'claude'].includes(engine)) {
     throw new Error('Invalid development runtime');
@@ -39,7 +41,7 @@ async function openDevelopmentRuntime({
       }
       threadId = id;
     };
-    connection = await openCodexChatConnection({
+    connection = await connectCodex({
       cwd: root,
       home,
       developmentPolicy: policy,
@@ -81,7 +83,7 @@ async function openDevelopmentRuntime({
     const socketPath = path.join(stateDir, `tool-${broker.runId.slice(0, 8)}.sock`);
     ipc = await startToolServer({ socketPath, broker });
     development.connection = ipc;
-    runtime = new ClaudeConversationRuntime({
+    runtime = createClaude({
       cwd: root,
       home,
       timeoutMs: 20 * 60 * 1000,
