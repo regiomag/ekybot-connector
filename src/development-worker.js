@@ -13,6 +13,7 @@ const { DevelopmentBroker } = require('./development-broker');
 const { openDevelopmentRuntime } = require('./development-runtime');
 const { runSandboxed } = require('./development-command');
 const { developmentBmt } = require('./development-bmt');
+const { projectNotebook, combineExtensions } = require('./project-notebook');
 
 function verifyProject(project, home = os.homedir()) {
   if (
@@ -141,7 +142,7 @@ async function runDevelopmentTick({
         gui: false,
         xcode,
         context: 'native-session',
-        sharedMemory: false,
+        sharedMemory: 'explicit-project-notebook-v1',
       });
       for (const project of published.projects || []) {
         try {
@@ -205,8 +206,11 @@ async function runDevelopmentTick({
         })
       : {};
     await bmt.assertAccess?.();
+    const notebook = projectNotebook((operation, input) =>
+      work('notebook', { runId: job.id, operation, input })
+    );
     const broker = new DevelopmentBroker({
-      ...bmt,
+      ...combineExtensions(bmt, notebook),
       root: binding.path,
       stateDir: path.join(stateDir, 'tools', job.id),
       runId: job.id,
