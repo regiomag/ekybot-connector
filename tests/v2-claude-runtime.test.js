@@ -97,6 +97,27 @@ test('Claude stream requires exact input acknowledgement, successful result and 
       spawnImpl: fakeProcess(events, code, splitBytes),
     }).run({ input, jobId, sessionId, resume: false });
   assert.equal(await run([init, user, result]), 'hi');
+  const thinking = {
+    type: 'system', subtype: 'thinking_tokens', session_id: sessionId,
+    uuid: randomUUID(), user_message_uuid: jobId,
+    estimated_tokens: 128, estimated_tokens_delta: 16,
+  };
+  assert.equal(await run([init, thinking, user, thinking, result]), 'hi');
+  for (const events of [
+    [thinking, init, user, result],
+    [init, user, result, thinking],
+    [init, thinking, user],
+    [init, { ...thinking, session_id: randomUUID() }, user, result],
+    [init, { ...thinking, user_message_uuid: randomUUID() }, user, result],
+    [init, { ...thinking, uuid: 'invalid' }, user, result],
+    [init, { ...thinking, estimated_tokens: -1 }, user, result],
+    [init, { ...thinking, estimated_tokens_delta: -1 }, user, result],
+    [init, { ...thinking, estimated_tokens: '128' }, user, result],
+    [init, { ...thinking, estimated_tokens_delta: 129 }, user, result],
+    [init, { ...thinking, estimated_tokens_delta: undefined }, user, result],
+    [init, { ...thinking, subtype: 'unqualified_progress' }, user, result],
+  ]) await assert.rejects(run(events));
+
   assert.equal(
     await run([init, user, result], 0, true),
     'hi',

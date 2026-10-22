@@ -42,17 +42,19 @@ if (
 ) {
   throw new Error('Upgrade precondition failed');
 }
-// Older native/BMT releases predate the lockfile. Dependencies may only come
-// from the exact already-installed, qualified development revision, never a
-// user-provided directory or an unpinned install.
-const dependencies = ['native-chat', 'bmt'].includes(kind)
-  ? path.join(base, `development-companion-${revision.slice(0, 7)}`)
-  : previous;
-if (
-  !fs
-    .readFileSync(path.join(dependencies, 'npm-shrinkwrap.json'))
-    .equals(fs.readFileSync(path.join(repo, 'npm-shrinkwrap.json')))
-) {
+// Prefer the existing service's qualified dependencies when its exact lockfile
+// is unchanged. Older native/BMT releases can still use a qualified development
+// installation of this revision. Never install unpinned packages during upgrade.
+const lockfile = fs.readFileSync(path.join(repo, 'npm-shrinkwrap.json'));
+const candidates = [previous];
+if (['native-chat', 'bmt'].includes(kind)) {
+  candidates.push(path.join(base, `development-companion-${revision.slice(0, 7)}`));
+}
+const dependencies = candidates.find((candidate) => {
+  const installed = path.join(candidate, 'npm-shrinkwrap.json');
+  return fs.existsSync(installed) && fs.readFileSync(installed).equals(lockfile);
+});
+if (!dependencies) {
   throw new Error('Dependencies changed; build a qualified installation first');
 }
 fs.mkdirSync(release, { mode: 0o700 });

@@ -43,4 +43,16 @@ function retryStatus(event) {
     count(event.retry_delay_ms)
   );
 }
-module.exports = { compactionBoundary, compactionStatus, retryStatus };
+// Progress only: it cannot acknowledge an input, supply an answer or grant tools.
+function thinkingStatus(event, jobId) {
+  return (
+    event.type === 'system' &&
+    event.subtype === 'thinking_tokens' &&
+    validSessionId(event.uuid) &&
+    event.user_message_uuid === jobId &&
+    count(event.estimated_tokens) &&
+    count(event.estimated_tokens_delta) &&
+    event.estimated_tokens_delta <= event.estimated_tokens
+  );
+}
+module.exports = { compactionBoundary, compactionStatus, retryStatus, thinkingStatus };

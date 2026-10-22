@@ -8,7 +8,7 @@ const { validSessionId } = require('./v2-codex-runtime');
 const { policy: bmtPolicy } = require('./bmt-policy');
 const { telemetry } = require('./native-telemetry');
 const { validModel } = require('./native-model-id');
-const { compactionBoundary, compactionStatus, retryStatus } = require('./claude-compaction');
+const { compactionBoundary, compactionStatus, retryStatus, thinkingStatus } = require('./claude-compaction');
 
 const fail = () => new Error('Claude native conversation could not be verified.');
 const hash = (value) => crypto.createHash('sha256').update(value).digest('hex');
@@ -426,7 +426,7 @@ class ClaudeConversationRuntime {
                 ...this.metrics,
                 compactions: this.compactionEvidence.size,
               });
-            } else if (compactionStatus(event) || retryStatus(event)) {
+            } else if (compactionStatus(event) || retryStatus(event) || thinkingStatus(event, jobId)) {
               if (!initialized || final !== undefined || event.session_id !== sessionId) {
                 throw fail();
               }
