@@ -29,6 +29,7 @@ class DevelopmentBroker {
     grants = { write: true, git: true, exec: true },
     extensions = [],
     instructions = '',
+    baseTools = true,
   }) {
     if (
       !path.isAbsolute(root) ||
@@ -52,6 +53,7 @@ class DevelopmentBroker {
       grants,
       extensions,
       instructions,
+      baseTools,
     });
     new HermesResumeGuard({ stateDir }).ensureDirectory();
     this.policy = { root, orchestrator: role === 'orchestrator', deniedRoots: [stateDir] };
@@ -68,6 +70,7 @@ class DevelopmentBroker {
   definitions() {
     return [
       ...tools.filter((t) => {
+        if (!this.baseTools) return false;
         if (t.name === 'ekybot_edit' && !this.grants.write) {
           return false;
         }

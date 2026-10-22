@@ -117,7 +117,7 @@ function readOpenAICredential(home) {
   return { apiKey: token, accountId };
 }
 
-function invokeNative({ plan, active, job, credential, fallbackCredential }) {
+function invokeNative({ plan, active, job, credential, fallbackCredential, missionBridge }) {
   const webFile = path.join(plan.home, 'web-policy.json');
   const webPolicy = fs.existsSync(webFile) ? readPrivateJson(webFile) : null;
   if (
@@ -192,6 +192,7 @@ function invokeNative({ plan, active, job, credential, fallbackCredential }) {
         webEnabled: !!webPolicy,
         credential,
         fallbackCredential,
+        ...(missionBridge ? { missionBridge } : {}),
         ...job,
       })
     );
@@ -215,14 +216,32 @@ function createPilotJournal(options = {}) {
         }
       }
     },
-    execute: (job) => {
+    execute: async (job) => {
       const verified = readActivation(options);
-      return invokeNative({
-        ...verified,
-        job,
-        credential: readOpenAICredential(plan.home),
-        fallbackCredential: readAnthropicCredential(options),
-      });
+      const bridge = options.openMission ? await options.openMission(job.jobId, plan) : null;
+      try {
+        return await invokeNative({
+          ...verified,
+          job,
+          ...(options.getCredentials
+            ? options.getCredentials()
+            : {
+                credential: readOpenAICredential(plan.home),
+                fallbackCredential: readAnthropicCredential(options),
+              }),
+          ...(bridge
+            ? {
+                missionBridge: {
+                  connection: bridge.connection,
+                  definitions: bridge.definitions,
+                  instructions: bridge.instructions,
+                },
+              }
+            : {}),
+        });
+      } finally {
+        await bridge?.close();
+      }
     },
   });
 }

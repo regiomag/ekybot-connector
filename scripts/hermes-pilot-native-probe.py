@@ -20,6 +20,9 @@ def execute(request):
     offline = request.get("offline") is True
     web_enabled = request.get("webEnabled") is True
     bmt_enabled = request.get("bmtEnabled") is True
+    mission_bridge = request.get("missionBridge")
+    if mission_bridge and (offline or bmt_enabled or not web_enabled):
+        raise PermissionError("Mission bridge requires the explicit online Web pilot")
     if web_enabled and not offline:
         policy = json.loads((home / "web-policy.json").read_text())
         if policy != {"version": 1, "enabled": True, "maxRequests": 8}:
@@ -88,6 +91,8 @@ def execute(request):
     fallback_activated = False
     request_hashes = set()
     tool_names = {"ekybot_web_read", "ekybot_web_search", "ekybot_request_site_access"} if web_enabled else set()
+    if mission_bridge:
+        tool_names.update(t["name"] for t in mission_bridge["definitions"])
 
     def save_attempts():
         if offline:
@@ -238,6 +243,9 @@ def execute(request):
             web.read = lambda url: {"url": url, "content": "OFFLINE_WEB_PAGE", "authentication": "none"}
             web.search_override = lambda query: {"results": []}
         register_web_tools(web)
+    if mission_bridge:
+        from hermes_mission_tools import register_mission_tools
+        register_mission_tools(mission_bridge)
     if provider == "openai-codex":
         import openai
 
@@ -273,12 +281,12 @@ def execute(request):
     agent = AIAgent(
         model=model, provider=provider, requested_provider=provider,
         api_key=credential["apiKey"], base_url=base_url,
-        enabled_toolsets=["ekybot_web"] if web_enabled else [], disabled_toolsets=[] if web_enabled else ["all"], max_iterations=6 if web_enabled else 1,
+        enabled_toolsets=(["ekybot_web"] if web_enabled else []) + (["ekybot_mission"] if mission_bridge else []), disabled_toolsets=[] if web_enabled else ["all"], max_iterations=6 if web_enabled else 1,
         max_tokens=2048 if web_enabled or bmt_enabled else 512, reasoning_config={"enabled": False}, quiet_mode=True,
         save_trajectories=False, verbose_logging=False, session_db=db,
         session_id=session_id, platform="cli", skip_context_files=True,
         load_soul_identity=True, skip_background_review=True, checkpoints_enabled=False,
-        ephemeral_system_prompt=(Path(__file__).resolve().parent.parent / "src/bmt-system-prompt.txt").read_text() if bmt_enabled else None,
+        ephemeral_system_prompt=mission_bridge["instructions"] if mission_bridge else (Path(__file__).resolve().parent.parent / "src/bmt-system-prompt.txt").read_text() if bmt_enabled else None,
         fallback_model={"provider": "anthropic", "model": "claude-opus-5-5",
                         "base_url": "https://api.anthropic.com", "api_key": fallback_credential["apiKey"]}
                         if provider == "openai-codex" and request.get("allowFallback") is True else None,

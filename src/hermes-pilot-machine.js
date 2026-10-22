@@ -20,7 +20,10 @@ async function runMachineTick(options = {}) {
     void machine({ action: 'heartbeat' }).catch(() => {});
   }, 30000);
   try {
-    return await pilotTick({ journal: createPilotJournal(options), machine });
+    return await pilotTick({
+      journal: createPilotJournal(options),
+      machine,
+    });
   } finally {
     clearInterval(heartbeat);
   }
