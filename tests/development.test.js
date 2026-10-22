@@ -102,19 +102,21 @@ test('command denied without approval, uncertain effect never replays', async ()
 });
 test('developers cannot delegate and cancellation precedes tools', async () => {
   const f = fixture();
-  const result = await f.broker.call('ekybot_delegate', {
-    projectId: 'other',
-    engine: 'codex',
-    task: 'do something',
-  });
-  assert.match(result.reason, /Delegation/);
+  await assert.rejects(
+    f.broker.call('ekybot_delegate', {
+      projectId: 'other',
+      engine: 'codex',
+      task: 'do something',
+    }),
+    /not granted/
+  );
   f.broker.cancelled = async () => true;
   await assert.rejects(f.broker.call('ekybot_projects', {}), /cancelled/);
 });
-test('commands remain unavailable until the OS sandbox is qualified', async () => {
+test('commands require an explicit qualified adapter and a bound root', async () => {
   await assert.rejects(
     runSandboxed({ command: '/bin/echo', args: ['fixture'] }),
-    /sandbox not qualified/
+    /Invalid sandbox command/
   );
   const f = fixture();
   assert.equal(
@@ -122,12 +124,14 @@ test('commands remain unavailable until the OS sandbox is qualified', async () =
     false
   );
   f.broker.approve = async () => true;
-  const result = await f.broker.call('ekybot_exec', {
-    command: '/bin/echo',
-    args: ['fixture'],
-    reason: 'fixture',
-  });
-  assert.match(result.reason, /sandbox not qualified/);
+  await assert.rejects(
+    f.broker.call('ekybot_exec', {
+      command: '/bin/echo',
+      args: ['fixture'],
+      reason: 'fixture',
+    }),
+    /not granted/
+  );
 });
 test('cancellation after approval prevents the effect and child error text stays private', async () => {
   const f = fixture();

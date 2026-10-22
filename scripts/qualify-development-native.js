@@ -4,9 +4,11 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { DevelopmentBroker } = require('../src/development-broker');
 const { openDevelopmentRuntime } = require('../src/development-runtime');
+const { runSandboxed } = require('../src/development-command');
 
 async function main() {
   const engine = process.argv[2];
+  const withCommand = process.argv.includes('--command');
   if (!['codex', 'claude'].includes(engine)) {
     throw new Error('Choose one explicit engine');
   }
@@ -18,7 +20,11 @@ async function main() {
     events = [];
   let session;
   for (const [index, text] of [
-    'Use ekybot_read to read fixture.txt. Use ekybot_edit to create answer.txt containing exactly the fixture text. Do not execute commands, Git, or delegate. Reply DEV_FILE_OK after checking the tool results.',
+    'Use ekybot_read to read fixture.txt. Use ekybot_edit to create answer.txt containing exactly the fixture text. ' +
+      (withCommand
+        ? 'Use ekybot_exec with command /usr/bin/xcodebuild and args ["-version"] to verify the Mac tools. Do not run any other command.'
+        : 'Do not execute commands.') +
+      ' Do not use Git or delegate. Reply DEV_FILE_OK after checking the tool results.',
     'Use ekybot_read to inspect answer.txt. State its exact content, and the fixture code you remember from the previous turn. Do not edit files or execute commands.',
   ].entries()) {
     const runId = crypto.randomUUID();
@@ -28,7 +34,12 @@ async function main() {
       runId,
       role: 'developer',
       projects: [],
-      approve: async () => false,
+      ...(withCommand ? { runCommand: (options) => runSandboxed(options) } : {}),
+      approve: async (request) =>
+        withCommand &&
+        request.tool === 'ekybot_exec' &&
+        request.input.command === '/usr/bin/xcodebuild' &&
+        JSON.stringify(request.input.args) === '["-version"]',
       event: async (event) => events.push(event),
     });
     const runtime = await openDevelopmentRuntime({

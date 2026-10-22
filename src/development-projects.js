@@ -14,6 +14,10 @@ const gitArgs = [
   'diff.external=',
   '-c',
   'core.pager=cat',
+  '-c',
+  'commit.gpgsign=false',
+  '-c',
+  'core.sshCommand=/usr/bin/ssh -o BatchMode=yes',
 ];
 function git(root, args, options = {}) {
   return execFileSync(GIT, [...gitArgs, ...args], {

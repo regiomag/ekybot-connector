@@ -47,6 +47,14 @@ const fail = () =>
   Object.assign(new Error('Codex chat-only policy is not qualified.'), {
     code: 'CODEX_POLICY_UNQUALIFIED',
   });
+function toml(value) {
+  if (Array.isArray(value)) return `[${value.map(toml).join(',')}]`;
+  if (value && typeof value === 'object')
+    return `{${Object.entries(value)
+      .map(([key, item]) => `${JSON.stringify(key)}=${toml(item)}`)
+      .join(',')}}`;
+  return JSON.stringify(value);
+}
 
 function assertChatOnlyConfig(config) {
   if (
@@ -87,6 +95,7 @@ async function openCodexChatConnection({
   createRpc = (options) => new JsonRpcProcess(options),
   versionCheck = execFileSync,
   toolRequest,
+  developmentPolicy,
 }) {
   if (
     !path.isAbsolute(cwd || '') ||
@@ -111,8 +120,12 @@ async function openCodexChatConnection({
   }
   const connect = async (extra = {}) => {
     const args = ['app-server', '--listen', 'stdio://'];
-    for (const [key, value] of Object.entries({ ...settings, ...extra })) {
-      args.push('-c', `${key}=${JSON.stringify(value)}`);
+    for (const [key, value] of Object.entries({
+      ...settings,
+      ...developmentPolicy?.overrides,
+      ...extra,
+    })) {
+      args.push('-c', `${key}=${toml(value)}`);
     }
     const rpc = createRpc({
       command,
@@ -151,6 +164,7 @@ async function openCodexChatConnection({
     const assertPolicy = async () => {
       const effective = await rpc.request('config/read', { includeLayers: false });
       assertChatOnlyConfig(effective.config);
+      developmentPolicy?.assert(effective.config);
       const account = await rpc.request('account/read', { refreshToken: false });
       if (account.account?.type !== 'chatgpt') {
         throw fail();

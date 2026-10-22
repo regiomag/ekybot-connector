@@ -8,11 +8,30 @@ const validSessionId = (id) => typeof id === 'string' && UUID.test(id);
 // Transport-independent adapter. The launcher must qualify the effective native
 // policy before constructing this adapter; this module grants no permissions.
 class CodexConversationRuntime {
-  constructor({ rpc, cwd, assertPolicy, timeoutMs = 120000, effort, development, instructions }) {
+  constructor({
+    rpc,
+    cwd,
+    assertPolicy,
+    timeoutMs = 120000,
+    effort,
+    development,
+    instructions,
+    model,
+  }) {
     if (!rpc || typeof assertPolicy !== 'function' || typeof cwd !== 'string') {
       throw fail('CODEX_CONFIG_INVALID');
     }
-    Object.assign(this, { rpc, cwd, assertPolicy, timeoutMs, effort, development, instructions });
+    if (model && !/^[a-zA-Z0-9._:-]{1,100}$/.test(model)) throw fail('CODEX_MODEL_INVALID');
+    Object.assign(this, {
+      rpc,
+      cwd,
+      assertPolicy,
+      timeoutMs,
+      effort,
+      development,
+      instructions,
+      model,
+    });
   }
 
   checkThread(thread, expectedId) {
@@ -94,10 +113,16 @@ class CodexConversationRuntime {
     }
     await this.assertPolicy();
     const params = { cwd: this.cwd, approvalPolicy: 'never', sandbox: 'read-only' };
+    if (this.model) params.model = this.model;
     if (this.instructions) {
       params.developerInstructions = this.instructions;
     }
     if (this.development) {
+      params.allowProviderModelFallback = false;
+      if (this.development.permissions) {
+        delete params.sandbox;
+        params.permissions = this.development.permissions;
+      }
       params.dynamicTools = this.development.tools.map((t) => ({ ...t, type: 'function' }));
       params.developerInstructions = this.development.instructions;
     }
@@ -200,8 +225,11 @@ class CodexConversationRuntime {
           input: [{ type: 'text', text: input }],
           cwd: this.cwd,
           approvalPolicy: 'never',
-          sandboxPolicy: { type: 'readOnly', networkAccess: false },
+          ...(this.development?.permissions
+            ? { permissions: this.development.permissions }
+            : { sandboxPolicy: { type: 'readOnly', networkAccess: false } }),
           ...(this.effort ? { effort: this.effort } : {}),
+          ...(this.model ? { model: this.model } : {}),
         })
         .then(
           (response) => {

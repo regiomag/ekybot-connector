@@ -13,11 +13,12 @@ const POLICY = 'claude-chat-v1';
 const SYSTEM =
   'You are Claude Code, connected to Ekybot. This isolated conversation has no tools, file access, browser, BMT connection or delegation. Answer honestly about those limits. Do not claim to have executed actions. No old chat or memory is imported.';
 
-function claudeArguments({ sessionId, resume, bmt = false, development }) {
+function claudeArguments({ sessionId, resume, bmt = false, development, model }) {
   if (!validSessionId(sessionId)) {
     throw fail();
   }
   return [
+    ...(model ? ['--model', model] : []),
     '--print',
     '--verbose',
     '--input-format',
@@ -184,11 +185,13 @@ class ClaudeConversationRuntime {
     timeoutMs = 120000,
     bmt = false,
     development,
+    model,
   }) {
     if (![cwd, home].every((p) => typeof p === 'string' && path.isAbsolute(p))) {
       throw fail();
     }
-    Object.assign(this, { cwd, home, status, spawnImpl, timeoutMs, bmt, development });
+    if (model && !/^[a-zA-Z0-9._:-]{1,100}$/.test(model)) throw fail();
+    Object.assign(this, { cwd, home, status, spawnImpl, timeoutMs, bmt, development, model });
   }
 
   inspectSession({ sessionId }) {
@@ -283,7 +286,13 @@ class ClaudeConversationRuntime {
         failed = false;
       const child = this.spawnImpl(
         '/opt/homebrew/bin/claude',
-        claudeArguments({ sessionId, resume, bmt: this.bmt, development: this.development }),
+        claudeArguments({
+          sessionId,
+          resume,
+          bmt: this.bmt,
+          development: this.development,
+          model: this.model,
+        }),
         {
           cwd: this.cwd,
           env: {

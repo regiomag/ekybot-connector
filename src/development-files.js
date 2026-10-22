@@ -5,8 +5,38 @@ const { TextDecoder } = require('node:util');
 
 const within = (root, file) => file === root || file.startsWith(`${root}${path.sep}`);
 const digest = (text) => crypto.createHash('sha256').update(text).digest('hex');
-const PROTECTED =
-  /(^|\/)(\.git|\.ssh|\.aws|\.gnupg|\.codex|\.claude|\.agents|\.npmrc|\.netrc|\.env(?:\.[^/]*)?|auth\.json|machine\.json|enrollment-key\.json|credentials[^/]*|[^/]*\.(?:pem|key|p12|pfx))($|\/)/i;
+const PROTECTED_NAMES = [
+  '.git',
+  '.ssh',
+  '.aws',
+  '.gnupg',
+  '.codex',
+  '.claude',
+  '.agents',
+  '.npmrc',
+  '.netrc',
+  '.env',
+  '.env.*',
+  'auth.json',
+  'machine.json',
+  'enrollment-key.json',
+  'credentials*',
+  '*.pem',
+  '*.key',
+  '*.p12',
+  '*.pfx',
+];
+const PROTECTED = new RegExp(
+  '(^|/)(' +
+    PROTECTED_NAMES.map((name) =>
+      name
+        .split('*')
+        .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+        .join('[^/]*')
+    ).join('|') +
+    ')($|/)',
+  'i'
+);
 const PRIVATE_MAC =
   /\/(?:Library\/(?:Keychains|Cookies|Mail|Messages|Application Support)|\.local\/share\/ekybot-v2)(?:\/|$)/;
 const secret =
@@ -33,7 +63,7 @@ function permittedPath(
   }
   if (
     PROTECTED.test(target) ||
-    PRIVATE_MAC.test(target) ||
+    (PRIVATE_MAC.test(target) && !within(root, target)) ||
     deniedRoots.some((p) => within(p, target))
   ) {
     throw new Error('Protected credentials or runtime configuration');
@@ -168,4 +198,5 @@ module.exports = {
   listDirectory,
   editFile,
   PROTECTED,
+  PROTECTED_NAMES,
 };
