@@ -1,5 +1,5 @@
-require('../src/development-worker')
-  .runDevelopmentTick({
+require('../src/development-pool')
+  .runDevelopmentPool({
     stateDir: process.env.EKYBOT_DEVELOPMENT_STATE_DIR,
     machineFile: process.env.EKYBOT_NATIVE_MACHINE_FILE,
   })

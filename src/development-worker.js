@@ -1,8 +1,9 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
+const { randomUUID } = require('node:crypto');
 const { execFileSync } = require('node:child_process');
-const { readPrivateJson, writeDurableJson, HermesResumeGuard } = require('./hermes-resume-guard');
+const { readPrivateJson, HermesResumeGuard } = require('./hermes-resume-guard');
 const { createMachineClient } = require('./v2-machine-client');
 const { pilotTick, DurableConversationJournal } = require('./hermes-pilot-journal');
 const { validSessionId } = require('./v2-codex-runtime');
@@ -17,15 +18,18 @@ function verifyProject(project, home = os.homedir()) {
     !validSessionId(project.id) ||
     !path.isAbsolute(project.path) ||
     [home, '/', '/Users', '/private', '/Applications'].includes(project.path)
-  )
+  ) {
     throw new Error('Explicit project directory required');
+  }
   const root = fs.realpathSync(project.path);
   permittedPath({ root }, root);
-  if (root !== project.path || git(root, ['rev-parse', '--show-toplevel']).trim() !== root)
+  if (root !== project.path || git(root, ['rev-parse', '--show-toplevel']).trim() !== root) {
     throw new Error('Select the canonical Git repository root');
+  }
   const ref = project.base_ref || 'HEAD';
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9_./-]{0,199}$/.test(ref))
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9_./-]{0,199}$/.test(ref)) {
     throw new Error('Invalid project reference');
+  }
   const commit = git(root, ['rev-parse', '--verify', `${ref}^{commit}`]).trim();
   return {
     id: project.id,
@@ -42,21 +46,31 @@ async function runDevelopmentTick({
   machineFile,
   home = os.homedir(),
   machine: injected,
+  slot,
+  openRuntime = openDevelopmentRuntime,
+  publish = true,
 }) {
   if (
     ![stateDir, machineFile].every((value) => typeof value === 'string' && path.isAbsolute(value))
-  )
+  ) {
     throw new Error('Explicit development configuration required');
+  }
   new HermesResumeGuard({ stateDir }).ensureDirectory();
   const machine = injected || createMachineClient(readPrivateJson(machineFile));
-  const work = (op, data = {}) => machine({ action: 'work', op, data });
+  const workerId = randomUUID();
+  const work = (op, data = {}) => machine({ action: 'work', op, data: { ...data, workerId } });
   const delivery = ({ action, ...data }) => work(action, data);
-  const lock = path.join(stateDir, 'worker.lock');
+  if (slot !== undefined && ![0, 1, 2].includes(slot)) {
+    throw new Error('Invalid worker slot');
+  }
+  const lock = path.join(stateDir, slot === undefined ? 'worker.lock' : `slot-${slot}.lock`);
   let fd;
   try {
     fd = fs.openSync(lock, 'wx', 0o600);
   } catch (e) {
-    if (e.code === 'EEXIST') return { status: 'worker-locked' };
+    if (e.code === 'EEXIST') {
+      return { status: 'worker-locked' };
+    }
     throw e;
   }
   fs.writeFileSync(fd, String(process.pid));
@@ -67,85 +81,108 @@ async function runDevelopmentTick({
     const sessions = path.join(stateDir, 'sessions');
     // Deliver stored output before starting any new native process, even when
     // authentication has since expired. Never replay an uncertain model turn.
-    if (fs.existsSync(sessions))
+    if ((slot === undefined || slot === 0) && fs.existsSync(sessions)) {
       for (const id of fs.readdirSync(sessions).filter(validSessionId)) {
         for (const engine of ['codex', 'claude']) {
           const journalDir = path.join(sessions, id, engine, 'journal');
-          if (!fs.existsSync(journalDir)) continue;
-          const journal = new DurableConversationJournal({
-            stateDir: journalDir,
-            channelId: id,
-            profile: `development-${engine}-v1`,
-            homeRoot: home,
-            assertFresh: async () => {},
-            validSessionId,
-            assertContinuation: () => {
-              throw new Error('Delivery only');
-            },
-            execute: async () => {
-              throw new Error('Delivery only');
-            },
-            inspectSession: async () => {
-              throw new Error('Delivery only');
-            },
-          });
-          if (journal.pendingDelivery().length)
-            return await pilotTick({ journal, machine: delivery });
+          if (!fs.existsSync(journalDir)) {
+            continue;
+          }
+          try {
+            const journal = new DurableConversationJournal({
+              stateDir: journalDir,
+              channelId: id,
+              profile: `development-${engine}-v1`,
+              homeRoot: home,
+              assertFresh: async () => {},
+              validSessionId,
+              assertContinuation: () => {
+                throw new Error('Delivery only');
+              },
+              execute: async () => {
+                throw new Error('Delivery only');
+              },
+              inspectSession: async () => {
+                throw new Error('Delivery only');
+              },
+            });
+            // Delivery errors quarantine only this outbox. Continue with other
+            // conversations; never discard its receipt or invoke its model again.
+            if (journal.pendingDelivery().length) {
+              await pilotTick({ journal, machine: delivery });
+            }
+          } catch {
+            // Server leases prevent a new run on the quarantined conversation.
+          }
         }
       }
-    let xcode = null;
-    try {
-      xcode = execFileSync('/usr/bin/xcodebuild', ['-version'], {
-        encoding: 'utf8',
-        timeout: 15000,
-      })
-        .trim()
-        .slice(0, 150);
-    } catch {}
-    const published = await work('publish', {
-      version: 1,
-      fileTools: true,
-      sandboxCommands: true,
-      network: false,
-      gui: false,
-      xcode,
-      context: 'native-session',
-      sharedMemory: false,
-    });
-    for (const project of published.projects || []) {
+    }
+    if (publish) {
+      let xcode = null;
       try {
-        const checked = verifyProject(project, home);
-        await work('verified', {
-          id: project.id,
-          status: 'ready',
-          revision: checked.commit,
-          detail: 'Dépôt Git vérifié ; chaque session possède sa copie de travail.',
-        });
+        xcode = execFileSync('/usr/bin/xcodebuild', ['-version'], {
+          encoding: 'utf8',
+          timeout: 15000,
+        })
+          .trim()
+          .slice(0, 150);
       } catch {
-        await work('verified', {
-          id: project.id,
-          status: 'invalid',
-          detail:
-            'Choisir le chemin absolu du dépôt Git, sans lien symbolique ni dossier de secrets.',
-        });
+        /* Xcode is optional; this is only capability discovery. */
+      }
+      const published = await work('publish', {
+        version: 2,
+        concurrentSessions: 3,
+        liveRevocation: true,
+        fileTools: true,
+        sandboxCommands: true,
+        network: false,
+        gui: false,
+        xcode,
+        context: 'native-session',
+        sharedMemory: false,
+      });
+      for (const project of published.projects || []) {
+        try {
+          const checked = verifyProject(project, home);
+          await work('verified', {
+            id: project.id,
+            status: 'ready',
+            revision: checked.commit,
+            detail: 'Dépôt Git vérifié ; chaque session possède sa copie de travail.',
+          });
+        } catch {
+          await work('verified', {
+            id: project.id,
+            status: 'invalid',
+            detail:
+              'Choisir le chemin absolu du dépôt Git, sans lien symbolique ni dossier de secrets.',
+          });
+        }
       }
     }
     const claim = await work('claim');
-    if (claim.blocked) return { status: 'blocked' };
-    if (!claim.job) return { status: 'idle' };
+    if (claim.blocked) {
+      return { status: 'blocked' };
+    }
+    if (!claim.job) {
+      return { status: 'idle' };
+    }
     job = claim.job;
     if (
       !validSessionId(job.id) ||
       !validSessionId(job.channelId) ||
       job.mode !== 'development' ||
       !['codex', 'claude'].includes(job.engine)
-    )
+    ) {
       throw new Error('Invalid job');
+    }
     const config = job.config;
     const project = verifyProject(config.project, home);
     // The accepted project revision is frozen at registration. An unrelated
     // checkout update cannot silently change the starting point of a new agent.
-    if (!/^[a-f0-9]{40}$/.test(config.project.revision)) throw new Error('Unverified revision');
+    if (!/^[a-f0-9]{40}$/.test(config.project.revision)) {
+      throw new Error('Unverified revision');
+    }
     project.commit = config.project.revision;
     const binding = prepareWorkspace({
       stateDir,
@@ -153,7 +190,11 @@ async function runDevelopmentTick({
       project,
       engine: job.engine,
     });
-    heartbeat = setInterval(() => void work('heartbeat').catch(() => {}), 30000);
+    const allowed = async () => (await work('access', { runId: job.id })).allowed === true;
+    if (!(await allowed())) {
+      throw new Error('Work access revoked');
+    }
+    heartbeat = setInterval(() => void work('heartbeat', { runId: job.id }).catch(() => {}), 30000);
     const broker = new DevelopmentBroker({
       root: binding.path,
       stateDir: path.join(stateDir, 'tools', job.id),
@@ -161,19 +202,22 @@ async function runDevelopmentTick({
       role: 'developer',
       projects: [{ id: project.id, name: project.name }],
       grants: config.grants,
+      cancelled: async () => !(await allowed()),
       runCommand: (options) => runSandboxed(options),
       event: (event) => work('event', { ...event, runId: job.id }),
       approve: async (request) => {
         const deadline = Date.now() + 10 * 60 * 1000;
         do {
           const result = await work('approval', { id: request.id, runId: job.id, request });
-          if (typeof result.decision === 'boolean') return result.decision;
+          if (typeof result.decision === 'boolean') {
+            return result.decision;
+          }
           await new Promise((resolve) => setTimeout(resolve, 3000));
         } while (Date.now() < deadline);
         return false;
       },
     });
-    opened = await openDevelopmentRuntime({
+    opened = await openRuntime({
       stateDir,
       channelId: job.channelId,
       engine: job.engine,
@@ -186,12 +230,18 @@ async function runDevelopmentTick({
       machine: (body) => (body.action === 'claim' ? Promise.resolve(claim) : delivery(body)),
     });
   } catch (error) {
-    if (job) await work('uncertain', { runId: job.id }).catch(() => {});
+    // A completed outbox is delivered on the next tick, even after loss of ACK.
+    if (job) {
+      await work('uncertain', { runId: job.id }).catch(() => {});
+    }
     throw error;
   } finally {
     clearInterval(heartbeat);
-    await opened?.close();
-    fs.unlinkSync(lock);
+    try {
+      await opened?.close();
+    } finally {
+      fs.unlinkSync(lock);
+    }
   }
 }
 module.exports = { runDevelopmentTick, verifyProject };

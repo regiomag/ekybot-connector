@@ -63,8 +63,12 @@ class DevelopmentBroker {
   }
   definitions() {
     return tools.filter((t) => {
-      if (t.name === 'ekybot_edit' && !this.grants.write) return false;
-      if (t.name === 'ekybot_git' && !this.grants.git) return false;
+      if (t.name === 'ekybot_edit' && !this.grants.write) {
+        return false;
+      }
+      if (t.name === 'ekybot_git' && !this.grants.git) {
+        return false;
+      }
       if (t.name === 'ekybot_delegate') {
         return this.role === 'orchestrator' && typeof this.delegate === 'function';
       }
@@ -83,10 +87,16 @@ class DevelopmentBroker {
   }
   async perform(name, input, callId) {
     validateTool(name, input);
-    if (!this.definitions().some((tool) => tool.name === name))
+    if (!this.definitions().some((tool) => tool.name === name)) {
       throw new Error('Tool not granted to this session');
-    if (name === 'ekybot_git' && ['commit', 'push'].includes(input.operation) && !this.grants.write)
+    }
+    if (
+      name === 'ekybot_git' &&
+      ['commit', 'push'].includes(input.operation) &&
+      !this.grants.write
+    ) {
       throw new Error('Read-only project');
+    }
     if (typeof callId !== 'string' || !callId || callId.length > 200 || ++this.calls > 80) {
       throw new Error('Development tool budget reached');
     }
@@ -105,15 +115,15 @@ class DevelopmentBroker {
       '-' +
       fingerprint.slice(20, 32);
     const receiptFile = path.join(this.stateDir, `${id}.json`);
+    if (await this.cancelled()) {
+      throw new Error('Run cancelled by owner');
+    }
     if (fs.existsSync(receiptFile)) {
       const previous = readPrivateJson(receiptFile);
       if (previous.fingerprint !== fingerprint || previous.status !== 'completed') {
         throw new Error('Tool outcome uncertain; do not repeat the action');
       }
       return previous.result;
-    }
-    if (await this.cancelled()) {
-      throw new Error('Run cancelled by owner');
     }
     const mutation =
       ['ekybot_edit', 'ekybot_exec', 'ekybot_delegate'].includes(name) ||
@@ -171,8 +181,9 @@ class DevelopmentBroker {
           !/^(git@[a-zA-Z0-9.-]+:[a-zA-Z0-9_./-]+|https:\/\/[a-zA-Z0-9.-]+\/[a-zA-Z0-9_./-]+)$/.test(
             remote
           )
-        )
+        ) {
           throw new Error('Unsupported Git destination');
+        }
         const pendingFiles = () =>
           git(this.root, ['ls-files', '--modified', '--others', '--exclude-standard', '-z'])
             .split('\0')
@@ -186,12 +197,15 @@ class DevelopmentBroker {
               };
             });
         const files = input.operation === 'commit' ? pendingFiles() : [];
-        if (files.length > 200) throw new Error('Commit file budget exceeded');
+        if (files.length > 200) {
+          throw new Error('Commit file budget exceeded');
+        }
         if (
           input.operation === 'commit' &&
           /(^|\n)filter\.[^\n]+\.(clean|process)=/i.test(git(this.root, ['config', '--list']))
-        )
+        ) {
           throw new Error('Repository filters require a separate qualification');
+        }
         if (!branch.startsWith('Mini/ekybot-')) {
           throw new Error('Only the bound Ekybot branch can be changed');
         }
@@ -225,8 +239,9 @@ class DevelopmentBroker {
           if (
             git(this.root, ['rev-parse', 'HEAD']).trim() !== head ||
             JSON.stringify(pendingFiles()) !== JSON.stringify(files)
-          )
+          ) {
             throw new Error('Working copy changed during approval');
+          }
           if (await this.cancelled()) {
             throw new Error('Run cancelled during approval');
           }
@@ -259,8 +274,9 @@ class DevelopmentBroker {
           if (git(this.root, ['rev-parse', 'HEAD']).trim() !== head) {
             throw new Error('Commit changed during approval');
           }
-          if (git(this.root, ['remote', 'get-url', '--push', 'origin']).trim() !== remote)
+          if (git(this.root, ['remote', 'get-url', '--push', 'origin']).trim() !== remote) {
             throw new Error('Git destination changed during approval');
+          }
           git(this.root, ['push', '--no-verify', '--', remote, `HEAD:refs/heads/${branch}`], {
             timeout: 60000,
           });
