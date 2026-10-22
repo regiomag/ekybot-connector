@@ -9,3 +9,11 @@ Qualification : 38 tests ciblés BMT, politique, Claude et journal natif ; tests
 La mise à jour du seul service BMT réutilise son installation de dépendances existante uniquement si le lockfile correspond exactement à celui de la nouvelle release. L’ancien chemin de dépendances qualifiées développement reste disponible pour les releases plus anciennes. Les journaux, sessions, authentifications et clés ne sont ni copiés dans la nouvelle release ni réinitialisés par la mise à jour.
 
 Les runs déjà interrompus restent à réconcilier explicitement. Ce correctif ne les annule pas et ne les relance pas automatiquement.
+
+## Installation et recette réelles
+
+Le propriétaire a explicitement autorisé la pause BMT avec reprise automatique, l’installation et la réconciliation des deux runs interrompus. Le 22 octobre 2026, la release `bmt-companion-c008e22` a remplacé `bmt-companion-e4a99e9` pour le seul service `com.ekybot.bmt-v2`. Tous les fichiers d’état surveillés étaient identiques avant/après installation. Les sessions interrompues sont archivées avec manifeste SHA-256 (six fichiers Ekylibr, huit fichiers Demo) ; les droits et les clés sont inchangés. Le service a repris avec `bmt_paused=false`.
+
+Deux nouveaux tests ont été envoyés depuis l’interface BMT, sans données métier ni outils. Claude-Ekylibr a répondu `OK_BMT_EKYLIBR`, reçu automatiquement dans BMT à 14:51:35 (Europe/Zurich). Claude BMT — Demo a répondu `OK_BMT_DEMO`, reçu automatiquement à 14:53:35. Les deux runs sont terminés avec zéro action métier, un reçu de callback chacun et une source toujours autorisée. Aucune livraison manuelle n’a été utilisée pour ces tests et aucune demande d’origine n’a été rejouée.
+
+Les anciens runs ont été clos par annulation technique après contrôle de l’absence de résultat et d’action. Le retour arrière conserve l’ancienne release et le plist `com.ekybot.bmt-v2.plist.before-c008e22` ; ne pas supprimer les archives ni rejouer un ancien run.
