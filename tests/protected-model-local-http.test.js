@@ -11,7 +11,7 @@ test('échange des données fictives avec un service local sans clé ni redirect
     const blocs=[];for await(const bloc of req) {blocs.push(bloc);}
     recu={authorization:req.headers.authorization,corps:JSON.parse(Buffer.concat(blocs).toString('utf8'))};
     res.writeHead(200,{'content-type':'application/json'});
-    res.end(JSON.stringify({choices:[{message:{role:'assistant',content:'Réponse locale fictive'}}]}));
+    res.end(JSON.stringify({model:'fictif',choices:[{message:{role:'assistant',content:'Réponse locale fictive'}}]}));
   });
   try {
     serveur.listen(0,'127.0.0.1');await once(serveur,'listening');

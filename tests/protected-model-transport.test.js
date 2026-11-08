@@ -5,7 +5,7 @@ const { creerTransportModeleProtege } = require('../src/protected-model-transpor
 const config = { mode:'api-compatible-explicite', endpoint:'https://modele.example.test/v1/chat/completions',
   modele:'modele-selectionne',limite:100,parametreLimite:'max_tokens' };
 const signal = () => new AbortController().signal;
-const reponse = (texte) => new Response(JSON.stringify({choices:[{message:{role:'assistant',content:texte}}]}),
+const reponse = (texte) => new Response(JSON.stringify({model:config.modele,choices:[{message:{role:'assistant',content:texte}}]}),
   {status:200,headers:{'content-type':'application/json'}});
 test('transmet seulement au modèle et à la destination configurés localement, sans laisser choisir le conteneur',async()=>{
   let appel;
@@ -59,7 +59,7 @@ test('réserve avant l’appel et conserve des compteurs bornés sans supposer u
   const ordre=[];
   const t=creerTransportModeleProtege({configuration:config,obtenirCle:async()=>'cle',
     suivi:{avant:async()=>ordre.push('réservation'),apres:async usage=>ordre.push(usage)},
-    envoyer:async()=>{ordre.push('appel');return new Response(JSON.stringify({usage:{prompt_tokens:12,completion_tokens:3,total_tokens:15},
+    envoyer:async()=>{ordre.push('appel');return new Response(JSON.stringify({model:config.modele,usage:{prompt_tokens:12,completion_tokens:3,total_tokens:15},
       choices:[{message:{role:'assistant',content:'ok'}}]}),{headers:{'content-type':'application/json'}});}});
   assert.equal(await t('question',signal()),'ok');
   assert.deepEqual(ordre,['réservation','appel',{etat:'mesure',entree:12,sortie:3}]);
@@ -78,8 +78,17 @@ test('enregistre les compteurs même lorsque la réponse du modèle est rejetée
   let observation;
   const t=creerTransportModeleProtege({configuration:config,obtenirCle:async()=>'cle',
     suivi:{avant:async()=>{},apres:async usage=>{observation=usage;}},envoyer:async()=>
-      new Response(JSON.stringify({usage:{prompt_tokens:8,completion_tokens:2,total_tokens:10},
+      new Response(JSON.stringify({model:config.modele,usage:{prompt_tokens:8,completion_tokens:2,total_tokens:10},
         choices:[{message:{role:'assistant',content:'texte',tool_calls:[{}]}}]}),{headers:{'content-type':'application/json'}})});
   await assert.rejects(t('question',signal()),/protected_model_unavailable/);
   assert.deepEqual(observation,{etat:'mesure',entree:8,sortie:2});
+});
+test('refuse une substitution de modèle et signale un coût inconnu',async()=>{
+  let observation;
+  const t=creerTransportModeleProtege({configuration:config,obtenirCle:async()=>'cle',
+    suivi:{avant:async()=>{},apres:async usage=>{observation=usage;}},envoyer:async()=>
+      new Response(JSON.stringify({model:'autre-modele',usage:{prompt_tokens:4,completion_tokens:1,total_tokens:5},
+        choices:[{message:{role:'assistant',content:'texte'}}]}),{headers:{'content-type':'application/json'}})});
+  await assert.rejects(t('question',signal()),/protected_model_unavailable/);
+  assert.deepEqual(observation,{etat:'inconnu'});
 });

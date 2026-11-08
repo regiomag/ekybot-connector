@@ -72,9 +72,9 @@ function creerTransportModeleProtege({ configuration, obtenirCle, envoyer = fetc
       const resultat = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(morceaux)));
       // Les compteurs sont envoyés même si le contenu de la réponse est
       // refusé : l'appel au fournisseur peut déjà avoir été facturé.
-      if(suivi) {await suivi.apres(mesurerUsage(resultat?.usage),signal);signal.throwIfAborted();}
+      if(suivi) {await suivi.apres(resultat?.model===modele?mesurerUsage(resultat?.usage):{etat:'inconnu'},signal);signal.throwIfAborted();}
       const choix = resultat?.choices;
-      if (!Array.isArray(choix) || choix.length !== 1 || choix[0]?.message?.role !== 'assistant'
+      if (resultat?.model!==modele || !Array.isArray(choix) || choix.length !== 1 || choix[0]?.message?.role !== 'assistant'
         || typeof choix[0].message.content !== 'string' || !choix[0].message.content.trim()
         || choix[0].message.content.length > 10000 || Buffer.byteLength(choix[0].message.content, 'utf8') > 40000
         || choix[0].message.tool_calls || choix[0].message.function_call || choix[0].message.refusal) {return unavailable();}

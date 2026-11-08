@@ -32,7 +32,7 @@ async function qualifier(socket,image,docker) {
       if(req.headers.authorization || body.model!=='modele-fictif') {throw new Error();}
       question=body.messages[0].content;appels++;
       res.writeHead(200,{'content-type':'application/json'});
-      res.end(JSON.stringify({choices:[{message:{role:'assistant',content:'Réponse locale fictive.'}}]}));
+      res.end(JSON.stringify({model:'modele-fictif',choices:[{message:{role:'assistant',content:'Réponse locale fictive.'}}]}));
     } catch {res.writeHead(400);res.end();}
   });
   try {

@@ -27,7 +27,7 @@ test('raccorde le transport à l’exécution seulement après journalisation, p
     docker.ouvrirDockerProtege=async()=>({identite:'demon-fictif',nettoyer:async()=>true,fermer:async()=>ordre.push('demon-ferme')});
     journalModule.ouvrirJournalProtege=async()=>({signal:lock.signal,recuperer:async()=>ordre.push('recuperer'),
       enregistrer:async()=>ordre.push('inscrit'),terminer:async()=>ordre.push('arrete'),fermer:async()=>ordre.push('journal-ferme')});
-    global.fetch=async(url,options)=>{envoi={url,options};return new Response(JSON.stringify({choices:[{message:{role:'assistant',content:'réponse'}}]}),
+    global.fetch=async(url,options)=>{envoi={url,options};return new Response(JSON.stringify({model:configuration.modele,choices:[{message:{role:'assistant',content:'réponse'}}]}),
       {headers:{'content-type':'application/json'}});};
     executor.executerAgentLocalProtege=async options=>{ordre.push('exec');assert.ok(ordre.includes('inscrit'));
       assert.ok(!JSON.stringify(options.liaison).includes('cle-fictive'));

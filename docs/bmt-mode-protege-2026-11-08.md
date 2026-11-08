@@ -142,3 +142,7 @@ les seuls compteurs bornés au serveur. Une réponse sans compteurs est notée
 inconnue et une interruption laisse la réservation incertaine ; aucune reprise
 automatique ne suppose que l'appel était gratuit ou n'a pas été facturé.
 Les valeurs métier et le texte de la question ne figurent pas dans ce suivi.
+La réponse du fournisseur doit confirmer exactement le modèle sélectionné.
+Une autre identité, ou une identité absente, est refusée et son coût est
+signalé comme inconnu : on ne lui applique pas silencieusement un tarif qui
+pourrait appartenir à un autre modèle.
