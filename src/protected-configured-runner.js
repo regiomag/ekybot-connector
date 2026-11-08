@@ -1,5 +1,6 @@
 'use strict';
 const { creerTransportModeleProtege } = require('./protected-model-transport');
+const { chargerModeleProtege } = require('./protected-model-selection');
 const { executerAgentLocalProtege } = require('./protected-local-executor');
 const { planProtectedLocalRuntime } = require('./protected-local-sandbox');
 const { verifierMessageLocalProtege } = require('./protected-local-contract');
@@ -10,7 +11,7 @@ const unavailable = () => {throw new Error('protected_runtime_unavailable');};
 /** Programme interne : chaque paramètre provient de la configuration privée
  * du poste et de la liaison authentifiée, jamais du message de l'agent.
  * Cette voie API explicite ne convertit pas une session CLI en clé payante. */
-async function executerAgentAvecApiProtegee({ configuration, obtenirCle, runtime, runId, octets, liaison, socket, docker,
+async function executerAgentAvecApiProtegee({ fichierConfiguration,selection,runtime, runId, octets, liaison, socket, docker,
   repertoire,verifierDroits,limiteAppels,delaiMs,signal }) {
   let demon,journal,inscrit = false,execute = false,resultat,erreur = false,incertain = false;
   let annuler,perteVerrou;
@@ -21,8 +22,9 @@ async function executerAgentAvecApiProtegee({ configuration, obtenirCle, runtime
     const message = verifierMessageLocalProtege(octets,liaison);
     if (message.metadata.runId !== runId || typeof verifierDroits !== 'function' || !(signal instanceof AbortSignal)
       || signal.aborted) {return unavailable();}
-    const appelerModele = creerTransportModeleProtege({ configuration,obtenirCle });
     await verifierDroits();
+    const { configuration,obtenirCle } = await chargerModeleProtege(fichierConfiguration,selection);
+    const appelerModele = creerTransportModeleProtege({ configuration,obtenirCle });
     demon = await ouvrirDockerProtege(docker,socket);
     journal = await ouvrirJournalProtege({repertoire,identiteDemon:demon.identite,nettoyer:demon.nettoyer});
     annuler = () => controle.abort();perteVerrou = () => controle.abort();

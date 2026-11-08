@@ -80,3 +80,11 @@ essais intégrés. Codex/Claude nécessitent leurs adaptateurs propres ; ne pas
 substituer un fournisseur ou une facturation. Le registre d'images et les
 gates restent fermés, et les tests précédents ne constituent pas une mise en
 production.
+
+La sélection du prototype API exige désormais un fichier local privé et un
+agent, fournisseur et modèle strictement identiques à la sélection autorisée.
+Le fichier ne contient que le nom de la variable locale contenant la clé ; la
+clé reste côté compagnon. La configuration et le transport authentifié depuis
+Ekybot ne sont pas encore exposés à l'utilisateur et aucun runtime n'est
+qualifié. Le contrôle des droits BMT avant chaque appel modèle doit encore être
+raccordé par le transport machine.

@@ -5,6 +5,7 @@ const sandbox=require('../src/protected-local-sandbox');
 const executor=require('../src/protected-local-executor');
 const docker=require('../src/protected-local-docker');
 const journalModule=require('../src/protected-local-journal');
+const selectionModule=require('../src/protected-model-selection');
 const run='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const id=n=>`${n.repeat(8)}-${n.repeat(4)}-4${n.repeat(3)}-8${n.repeat(3)}-${n.repeat(12)}`;
 const liaison={projet:id('1'),agent:`agent:${id('2')}`};
@@ -18,10 +19,11 @@ const configuration={mode:'api-compatible-explicite',endpoint:'https://modele.ex
 
 test('raccorde le transport à l’exécution seulement après journalisation, puis confirme l’arrêt',async()=>{
   const old={plan:sandbox.planProtectedLocalRuntime,exec:executor.executerAgentLocalProtege,
-    docker:docker.ouvrirDockerProtege,journal:journalModule.ouvrirJournalProtege,fetch:global.fetch};
+    docker:docker.ouvrirDockerProtege,journal:journalModule.ouvrirJournalProtege,selection:selectionModule.chargerModeleProtege,fetch:global.fetch};
   const ordre=[];const lock=new AbortController();let envoi;
   try {
     sandbox.planProtectedLocalRuntime=()=>[];
+    selectionModule.chargerModeleProtege=async()=>({configuration,obtenirCle:async()=>'cle-fictive'});
     docker.ouvrirDockerProtege=async()=>({identite:'demon-fictif',nettoyer:async()=>true,fermer:async()=>ordre.push('demon-ferme')});
     journalModule.ouvrirJournalProtege=async()=>({signal:lock.signal,recuperer:async()=>ordre.push('recuperer'),
       enregistrer:async()=>ordre.push('inscrit'),terminer:async()=>ordre.push('arrete'),fermer:async()=>ordre.push('journal-ferme')});
@@ -32,7 +34,7 @@ test('raccorde le transport à l’exécution seulement après journalisation, p
       return {texte:await options.appelerModele('question pseudonymisée',options.signal)};};
     delete require.cache[require.resolve('../src/protected-configured-runner')];
     const { executerAgentAvecApiProtegee }=require('../src/protected-configured-runner');
-    const resultat=await executerAgentAvecApiProtegee({configuration,obtenirCle:async()=>'cle-fictive',runtime:'fictif',runId:run,
+    const resultat=await executerAgentAvecApiProtegee({fichierConfiguration:'/tmp/modele-fictif',selection:{},runtime:'fictif',runId:run,
       octets:Buffer.from(JSON.stringify(message)),liaison,socket:'/tmp/fictif',docker:'/usr/bin/docker',repertoire:'/tmp/fictif',
       verifierDroits:async()=>{},limiteAppels:1,signal:new AbortController().signal});
     assert.deepEqual(resultat,{statut:'termine',texte:'réponse'});
@@ -41,27 +43,28 @@ test('raccorde le transport à l’exécution seulement après journalisation, p
     assert.ok(!envoi.options.body.includes('cle-fictive'));
   } finally {
     sandbox.planProtectedLocalRuntime=old.plan;executor.executerAgentLocalProtege=old.exec;docker.ouvrirDockerProtege=old.docker;
-    journalModule.ouvrirJournalProtege=old.journal;global.fetch=old.fetch;delete require.cache[require.resolve('../src/protected-configured-runner')];
+    journalModule.ouvrirJournalProtege=old.journal;selectionModule.chargerModeleProtege=old.selection;global.fetch=old.fetch;delete require.cache[require.resolve('../src/protected-configured-runner')];
   }
 });
 test('une absence non vérifiable reste incertaine et conserve le journal',async()=>{
   const old={plan:sandbox.planProtectedLocalRuntime,exec:executor.executerAgentLocalProtege,
-    docker:docker.ouvrirDockerProtege,journal:journalModule.ouvrirJournalProtege};
+    docker:docker.ouvrirDockerProtege,journal:journalModule.ouvrirJournalProtege,selection:selectionModule.chargerModeleProtege};
   let abandonne=false;const lock=new AbortController();
   try {
     sandbox.planProtectedLocalRuntime=()=>[];
+    selectionModule.chargerModeleProtege=async()=>({configuration,obtenirCle:async()=>'cle-fictive'});
     docker.ouvrirDockerProtege=async()=>({identite:'demon',nettoyer:async()=>false,fermer:async()=>{}});
     journalModule.ouvrirJournalProtege=async()=>({signal:lock.signal,recuperer:async()=>{},enregistrer:async()=>{},
       terminer:async()=>{throw new Error();},abandonner:()=>{abandonne=true;},fermer:async()=>{}});
     executor.executerAgentLocalProtege=async()=>{throw new Error('protected_runtime_stop_unconfirmed');};
     delete require.cache[require.resolve('../src/protected-configured-runner')];
     const { executerAgentAvecApiProtegee }=require('../src/protected-configured-runner');
-    await assert.rejects(executerAgentAvecApiProtegee({configuration,obtenirCle:async()=>'cle',runtime:'fictif',runId:run,
+    await assert.rejects(executerAgentAvecApiProtegee({fichierConfiguration:'/tmp/modele-fictif',selection:{},runtime:'fictif',runId:run,
       octets:Buffer.from(JSON.stringify(message)),liaison,socket:'/tmp/fictif',docker:'/usr/bin/docker',repertoire:'/tmp/fictif',
       verifierDroits:async()=>{},limiteAppels:1,signal:new AbortController().signal}),/protected_runtime_unavailable/);
     assert.equal(abandonne,true);
   } finally {
     sandbox.planProtectedLocalRuntime=old.plan;executor.executerAgentLocalProtege=old.exec;docker.ouvrirDockerProtege=old.docker;
-    journalModule.ouvrirJournalProtege=old.journal;delete require.cache[require.resolve('../src/protected-configured-runner')];
+    journalModule.ouvrirJournalProtege=old.journal;selectionModule.chargerModeleProtege=old.selection;delete require.cache[require.resolve('../src/protected-configured-runner')];
   }
 });
