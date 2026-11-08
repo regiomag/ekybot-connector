@@ -4,6 +4,8 @@ require('../src/load-env')();
 const chalk = require('chalk');
 const reconcileCompanionState = require('./companion-reconcile');
 const { cycleMachineProtegee } = require('../src/protected-machine-cycle');
+const { recupererRuntimeInterrompu } = require('../src/protected-runtime-recovery');
+const { cycleCompagnon } = require('../src/protected-daemon-cycle');
 const {
   EkybotCompanionApiClient,
   EkybotCompanionStateStore,
@@ -88,16 +90,12 @@ async function runDaemon() {
     console.log(chalk.blue(`\n[Cycle ${cycle}] ${startedAt.toISOString()} reason=${reason}`));
 
     try {
-      await reconcileCompanionState();
-      if (PROTECTED_RUNTIME_QUALIFIE && !protectedAbort.signal.aborted) {
-        await cycleMachineProtegee({etat:state,signal:protectedAbort.signal,reglages:{
-          fichierConfiguration:process.env.EKYBOT_PROTECTED_CONFIG,
-          socket:process.env.EKYBOT_PROTECTED_DOCKER_SOCKET,
-          docker:process.env.EKYBOT_PROTECTED_DOCKER_BINARY,
-          repertoire:process.env.EKYBOT_PROTECTED_STATE_DIR,
-          limiteAppels:1,delaiMs:120000,
-        }});
-      }
+      const reglages={fichierConfiguration:process.env.EKYBOT_PROTECTED_CONFIG,
+        socket:process.env.EKYBOT_PROTECTED_DOCKER_SOCKET,docker:process.env.EKYBOT_PROTECTED_DOCKER_BINARY,
+        repertoire:process.env.EKYBOT_PROTECTED_STATE_DIR,limiteAppels:1,delaiMs:120000};
+      await cycleCompagnon({protege:PROTECTED_RUNTIME_QUALIFIE,signal:protectedAbort.signal,
+        reprendre:()=>recupererRuntimeInterrompu(reglages),reconcilier:reconcileCompanionState,
+        travailler:()=>cycleMachineProtegee({etat:state,signal:protectedAbort.signal,reglages})});
       console.log(chalk.green(`[Cycle ${cycle}] Companion reconcile finished`));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

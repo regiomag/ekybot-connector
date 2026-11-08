@@ -111,3 +111,6 @@ tâche : un ancien conteneur inscrit est recherché et arrêté même si aucune
 nouvelle tâche n'attend. Si l'identité du démon ou l'arrêt ne peuvent pas être
 confirmés, aucune tâche n'est réclamée. Cette reprise reste derrière la même
 constante fermée et doit encore être vérifiée sur un démon réel.
+Elle est également lancée avant la synchronisation réseau du compagnon : une
+panne de réseau ne doit pas empêcher le nettoyage local. En cas d'échec, le
+cycle classique reste accessible, mais aucune tâche protégée n'est lancée.
