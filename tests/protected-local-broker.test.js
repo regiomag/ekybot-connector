@@ -38,3 +38,16 @@ test('un appel dépassé reste occupé tant que le fournisseur ne s’est pas ar
     { type: 'modele_resultat', id: id('2'), texte: 'Terminé' });
   assert.equal(appels, 2);
 });
+
+test('un retrait d’autorisation annule le pont et ne permet aucun nouvel appel', async () => {
+  const controle = new AbortController();
+  let modeleSignal;
+  const pont = creerPontLocalProtege({ limiteAppels: 2, signal: controle.signal,
+    appelerModele: async (_question, signal) => { modeleSignal = signal; return await new Promise(() => {}); } });
+  const appel = pont({ type: 'modele', id: id('1'), question: 'Question' });
+  await new Promise((resolve) => setImmediate(resolve));
+  controle.abort();
+  await assert.rejects(appel, /protected_runtime_unavailable/);
+  assert.equal(modeleSignal.aborted, true);
+  await assert.rejects(pont({ type: 'modele', id: id('2'), question: 'Question' }), /protected_runtime_unavailable/);
+});

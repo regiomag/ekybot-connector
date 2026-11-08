@@ -26,10 +26,23 @@ reprise. Avant toute activation, il faut également un runtime et une session
 isolés, sans mémoire, outils, espace de travail ou instructions classiques,
 ainsi que des vérifications intégrées du rappel, des droits et de la révocation.
 
-Le plan expérimental de boîte locale interdit réseau, montages, privilèges,
-logs de conteneur et téléchargement implicite ; il ne transmet aucun secret
-ni environnement du poste. Il ne lance rien et son registre d'images
-qualifiées est vide. Un pont local vers le modèle sélectionné, l'arrêt effectif
-des processus, la vérification des images et les essais d'isolation restent
-nécessaires. Aucun prestataire d'isolation hébergé n'est prévu ; le modèle
-choisi par l'utilisateur conserve son fournisseur et ses propres conditions.
+Le prototype de boîte locale interdit réseau, montages, privilèges, logs de
+conteneur et téléchargement implicite ; il ne transmet aucun secret ni
+environnement du poste. Son registre d'images qualifiées est vide et le
+relais historique refuse toujours les demandes protégées. Un protocole local
+et un pont injectable bornent les appels au modèle sélectionné sans exposer
+ses identifiants ; ils ne sont pas encore raccordés à Codex ni à Claude.
+L'arrêt effectif des processus, la vérification des images et les essais
+d'isolation restent nécessaires. Aucun prestataire d'isolation hébergé n'est
+prévu ; le modèle choisi conserve son fournisseur et ses propres conditions.
+
+Pour Codex, la documentation officielle décrit un app-server piloté en
+stdin/stdout, avec un fournisseur Responses configuré et un jeton OAuth :
+https://developers.openai.com/siwc/token-sharing-open-source/codex-app-server.
+Le pont local expérimental ne transporte encore qu'une question et une réponse
+textuelles ; il ne met pas en œuvre ce protocole Responses ni la connexion
+ChatGPT. Il ne faut donc pas le présenter comme compatible avec Codex ou comme
+une conservation automatique de l'abonnement existant. Un adaptateur dédié,
+sa gestion des flux et des autorisations et des essais sur image locale restent
+nécessaires. Aucun changement de fournisseur ou de facturation ne doit être
+fait silencieusement.
