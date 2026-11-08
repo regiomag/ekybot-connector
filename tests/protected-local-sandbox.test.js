@@ -12,7 +12,7 @@ test('le plan interdit réseau, montages, privilèges et récupération automati
     assert.ok(args.includes(option), option);
   }
   assert.equal(args.at(-1), image);
-  assert.ok(!args.some((arg) => /^(--mount|--volume|--privileged|--env-file|--network=host)/.test(arg)));
+  assert.ok(!args.some((arg) => /^(--mount|--volume|--privileged|--env-file|--network=host|--pid(?:=|$))/.test(arg)));
   assert.deepEqual(args.filter((value, index) => index > 0 && args[index - 1] === '--env'), ['HOME=/tmp', 'LANG=C.UTF-8']);
   assert.ok(Object.isFrozen(args));
 });

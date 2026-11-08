@@ -15,8 +15,8 @@ async function preparerContexteRuntime(baseImage) {
     const travailleur=await fs.readFile(join(__dirname,'protected-runtime','worker.js'));
     const contrat=await fs.readFile(join(__dirname,'protected-local-contract.js'));
     if (!travailleur.length || travailleur.length>65536 || !contrat.length || contrat.length>65536) {throw new Error();}
-    const dockerfile=Buffer.from(`FROM ${baseImage}\nCOPY protected-local-contract.js /app/src/protected-local-contract.js\n`+
-      'COPY worker.js /app/src/protected-runtime/worker.js\nWORKDIR /app\nUSER 65534:65534\n'+
+    const dockerfile=Buffer.from(`FROM ${baseImage}\nCOPY --chown=65534:65534 protected-local-contract.js /app/src/protected-local-contract.js\n`+
+      'COPY --chown=65534:65534 worker.js /app/src/protected-runtime/worker.js\nWORKDIR /app\nUSER 65534:65534\n'+
       'ENV NODE_OPTIONS= NODE_PATH= HOME=/tmp\nHEALTHCHECK NONE\n'+
       'ENTRYPOINT ["/usr/local/bin/node", "/app/src/protected-runtime/worker.js"]\nCMD ["--"]\n');
     chemin=await fs.mkdtemp(join(tmpdir(),'bmt-runtime-context-'));

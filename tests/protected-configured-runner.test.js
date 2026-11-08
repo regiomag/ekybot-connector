@@ -36,9 +36,10 @@ test('raccorde le transport à l’exécution seulement après journalisation, p
     const { executerAgentAvecApiProtegee }=require('../src/protected-configured-runner');
     const resultat=await executerAgentAvecApiProtegee({fichierConfiguration:'/tmp/modele-fictif',selection:{},runtime:'fictif',runId:run,
       octets:Buffer.from(JSON.stringify(message)),liaison,socket:'/tmp/fictif',docker:'/usr/bin/docker',repertoire:'/tmp/fictif',
-      verifierDroits:async()=>{},limiteAppels:1,signal:new AbortController().signal});
+      verifierDroits:async()=>{},suivi:{avant:async()=>ordre.push('réservé'),apres:async usage=>{assert.equal(usage.etat,'inconnu');ordre.push('usage');}},
+      limiteAppels:1,signal:new AbortController().signal});
     assert.deepEqual(resultat,{statut:'termine',texte:'réponse'});
-    assert.deepEqual(ordre,['recuperer','inscrit','exec','arrete','journal-ferme','demon-ferme']);
+    assert.deepEqual(ordre,['recuperer','inscrit','exec','réservé','usage','arrete','journal-ferme','demon-ferme']);
     assert.equal(envoi.url,configuration.endpoint);assert.equal(JSON.parse(envoi.options.body).model,configuration.modele);
     assert.ok(!envoi.options.body.includes('cle-fictive'));
   } finally {
@@ -61,7 +62,7 @@ test('une absence non vérifiable reste incertaine et conserve le journal',async
     const { executerAgentAvecApiProtegee }=require('../src/protected-configured-runner');
     await assert.rejects(executerAgentAvecApiProtegee({fichierConfiguration:'/tmp/modele-fictif',selection:{},runtime:'fictif',runId:run,
       octets:Buffer.from(JSON.stringify(message)),liaison,socket:'/tmp/fictif',docker:'/usr/bin/docker',repertoire:'/tmp/fictif',
-      verifierDroits:async()=>{},limiteAppels:1,signal:new AbortController().signal}),/protected_runtime_unavailable/);
+      verifierDroits:async()=>{},suivi:{avant:async()=>{},apres:async()=>{}},limiteAppels:1,signal:new AbortController().signal}),/protected_runtime_unavailable/);
     assert.equal(abandonne,true);
   } finally {
     sandbox.planProtectedLocalRuntime=old.plan;executor.executerAgentLocalProtege=old.exec;docker.ouvrirDockerProtege=old.docker;

@@ -123,3 +123,22 @@ seule, une qualification ni une activation du parcours.
 Si ce service local ne demande pas de clé, la configuration privée peut
 explicitement omettre l'authentification ; une destination distante exige
 toujours une clé.
+
+Une première qualification a été exécutée dans une VM locale dédiée sans
+montage du poste, sur architecture ARM64 : exécution de l'image avec un modèle
+HTTP fictif local, absence d'interface réseau autre que `lo`, PID privé,
+utilisateur non privilégié, système de fichiers en lecture seule, absence du
+socket Docker et des variables du poste, puis récupération après interruption
+brutale. Elle a permis de corriger une option Docker invalide et les droits des
+fichiers de l'image. `scripts/qualifier-runtime-local.js` permet de refaire
+l'essai d'exécution avec le socket, l'empreinte de l'image locale et le chemin
+du binaire Docker, explicitement fournis. Cette preuve est limitée à cette
+machine et à cette image de test : la distribution d'une image qualifiée, les
+autres plateformes, le suivi des coûts et la recette complète restent requis.
+Le registre et les gates demeurent fermés.
+
+Le compagnon réserve désormais l'appel modèle avant son émission, puis remet
+les seuls compteurs bornés au serveur. Une réponse sans compteurs est notée
+inconnue et une interruption laisse la réservation incertaine ; aucune reprise
+automatique ne suppose que l'appel était gratuit ou n'a pas été facturé.
+Les valeurs métier et le texte de la question ne figurent pas dans ce suivi.

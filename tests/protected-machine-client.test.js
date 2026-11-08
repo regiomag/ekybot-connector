@@ -16,10 +16,13 @@ test('isole le bail, l’agent local et la clé du contenu envoyé au runtime',a
   const appels=[];
   const client=creerClientMachineProtegee({origine:'https://eky.example.test',obtenirCleMachine:async()=>`ekm_${'a'.repeat(48)}`,
     envoyer:async(url,options)=>{const body=JSON.parse(options.body);appels.push({url,body,options});
-      return json(body.action==='prendre'?task:body.action==='verifier'?{autorise:true}:{enregistre:true});}});
+      return json(body.action==='prendre'?task:body.action==='verifier'?{autorise:true}:body.action==='reserver'?{reserve:true}:{enregistre:true});}});
   const signal=new AbortController().signal,t=await client.prendre(signal);
   assert.ok(t);assert.equal(t.bail.demande,demande);assert.ok(!t.octets.toString().includes('agent-interne'));
   assert.ok(!t.octets.toString().includes('ekm_'));assert.equal(await client.verifier(t.bail,signal),true);
+  assert.equal(await client.reserver(t.bail,id('8'),signal),true);
+  assert.equal(await client.enregistrerUsage(t.bail,id('8'),{etat:'mesure',entree:10,sortie:2},signal),true);
+  await assert.rejects(client.enregistrerUsage(t.bail,id('8'),{etat:'mesure',entree:10,sortie:-1},signal),/protected_machine_unavailable/);
   assert.equal(await client.terminer(t.bail,{statut:'termine',texte:'réponse'},signal),true);
   assert.ok(appels.every(a=>a.url==='https://eky.example.test/api/companion/protected/tasks' && a.options.redirect==='error'));
   assert.ok(appels.every(a=>!JSON.stringify(a.body).includes('ekm_')));

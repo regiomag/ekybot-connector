@@ -12,7 +12,7 @@ const unavailable = () => {throw new Error('protected_runtime_unavailable');};
  * du poste et de la liaison authentifiée, jamais du message de l'agent.
  * Cette voie API explicite ne convertit pas une session CLI en clé payante. */
 async function executerAgentAvecApiProtegee({ fichierConfiguration,selection,runtime, runId, octets, liaison, socket, docker,
-  repertoire,verifierDroits,limiteAppels,delaiMs,signal }) {
+  repertoire,verifierDroits,suivi,limiteAppels,delaiMs,signal }) {
   let demon,journal,inscrit = false,execute = false,resultat,erreur = false,incertain = false;
   let annuler,perteVerrou;
   const controle = new AbortController();
@@ -20,11 +20,12 @@ async function executerAgentAvecApiProtegee({ fichierConfiguration,selection,run
     // Refuser toute opération avant la qualification du runtime et du message.
     planProtectedLocalRuntime(runtime,runId);
     const message = verifierMessageLocalProtege(octets,liaison);
-    if (message.metadata.runId !== runId || typeof verifierDroits !== 'function' || !(signal instanceof AbortSignal)
+    if (message.metadata.runId !== runId || typeof verifierDroits !== 'function' || !suivi
+      || typeof suivi.avant!=='function' || typeof suivi.apres!=='function' || !(signal instanceof AbortSignal)
       || signal.aborted) {return unavailable();}
     await verifierDroits();
     const { configuration,obtenirCle } = await chargerModeleProtege(fichierConfiguration,selection);
-    const appelerModele = creerTransportModeleProtege({ configuration,obtenirCle });
+    const appelerModele = creerTransportModeleProtege({ configuration,obtenirCle,suivi });
     demon = await ouvrirDockerProtege(docker,socket);
     journal = await ouvrirJournalProtege({repertoire,identiteDemon:demon.identite,nettoyer:demon.nettoyer});
     annuler = () => controle.abort();perteVerrou = () => controle.abort();

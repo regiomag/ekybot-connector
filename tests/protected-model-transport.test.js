@@ -55,3 +55,31 @@ test('refuse les redirections, sorties non bornées, outils et erreurs du fourni
     await assert.rejects(t('question',signal()),e=>e.message==='protected_model_unavailable');
   }
 });
+test('réserve avant l’appel et conserve des compteurs bornés sans supposer un coût',async()=>{
+  const ordre=[];
+  const t=creerTransportModeleProtege({configuration:config,obtenirCle:async()=>'cle',
+    suivi:{avant:async()=>ordre.push('réservation'),apres:async usage=>ordre.push(usage)},
+    envoyer:async()=>{ordre.push('appel');return new Response(JSON.stringify({usage:{prompt_tokens:12,completion_tokens:3,total_tokens:15},
+      choices:[{message:{role:'assistant',content:'ok'}}]}),{headers:{'content-type':'application/json'}});}});
+  assert.equal(await t('question',signal()),'ok');
+  assert.deepEqual(ordre,['réservation','appel',{etat:'mesure',entree:12,sortie:3}]);
+  const refuse=creerTransportModeleProtege({configuration:config,obtenirCle:async()=>'cle',
+    suivi:{avant:async()=>{throw new Error();},apres:async()=>{}},envoyer:async()=>{throw new Error('doit rester fermé');}});
+  await assert.rejects(refuse('question',signal()),/protected_model_unavailable/);
+});
+test('un fournisseur sans compteurs ou avec des compteurs incohérents ne donne pas un faux zéro',async()=>{
+  const {mesurerUsage}=require('../src/protected-model-transport');
+  for(const usage of [undefined,{}, {prompt_tokens:0,completion_tokens:1,total_tokens:0},
+    {prompt_tokens:-1,completion_tokens:0}, {prompt_tokens:1,completion_tokens:9000}]) {
+    assert.deepEqual(mesurerUsage(usage),{etat:'inconnu'});
+  }
+});
+test('enregistre les compteurs même lorsque la réponse du modèle est rejetée',async()=>{
+  let observation;
+  const t=creerTransportModeleProtege({configuration:config,obtenirCle:async()=>'cle',
+    suivi:{avant:async()=>{},apres:async usage=>{observation=usage;}},envoyer:async()=>
+      new Response(JSON.stringify({usage:{prompt_tokens:8,completion_tokens:2,total_tokens:10},
+        choices:[{message:{role:'assistant',content:'texte',tool_calls:[{}]}}]}),{headers:{'content-type':'application/json'}})});
+  await assert.rejects(t('question',signal()),/protected_model_unavailable/);
+  assert.deepEqual(observation,{etat:'mesure',entree:8,sortie:2});
+});

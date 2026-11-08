@@ -15,7 +15,8 @@ function buildIsolatedContainerArgs(runId, image) {
   }
   return Object.freeze([
     'run', '--rm', '--interactive', '--name', `bmt-protected-${runId}`,
-    '--pull=never', '--network=none', '--ipc=none', '--pid=private',
+    // Docker crée un espace PID privé par défaut ; "--pid=private" n'existe pas.
+    '--pull=never', '--network=none', '--ipc=none',
     '--read-only', '--cap-drop=ALL', '--security-opt=no-new-privileges:true',
     '--pids-limit=32', '--memory=512m', '--cpus=1', '--user=65534:65534',
     '--tmpfs', '/tmp:rw,noexec,nosuid,nodev,size=16m',

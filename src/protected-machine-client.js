@@ -83,6 +83,23 @@ function creerClientMachineProtegee({origine,obtenirCleMachine,envoyer=fetch}) {
       if(!exact(valeur,['autorise']) || valeur.autorise!==true) {return unavailable();}
       return true;
     },
+    async reserver(travail,appel,signal) {
+      verifierBail(travail);
+      if(typeof appel!=='string' || !UUID.test(appel) || Object.values(travail).includes(appel)) {return unavailable();}
+      const valeur=await appeler({action:'reserver',version:1,...travail,appel},signal);
+      if(!exact(valeur,['reserve']) || valeur.reserve!==true) {return unavailable();}
+      return true;
+    },
+    async enregistrerUsage(travail,appel,usage,signal) {
+      verifierBail(travail);
+      if(typeof appel!=='string' || !UUID.test(appel) || Object.values(travail).includes(appel)
+        || (!exact(usage,['etat']) || usage.etat!=='inconnu') && (!exact(usage,['etat','entree','sortie'])
+          || usage.etat!=='mesure' || !Number.isSafeInteger(usage.entree) || usage.entree<0 || usage.entree>5000000
+          || !Number.isSafeInteger(usage.sortie) || usage.sortie<0 || usage.sortie>8192)) {return unavailable();}
+      const valeur=await appeler({action:'usage',version:1,...travail,appel,usage},signal);
+      if(!exact(valeur,['enregistre']) || valeur.enregistre!==true) {return unavailable();}
+      return true;
+    },
     async terminer(travail,resultat,signal) {
       verifierBail(travail);
       if(!resultat || typeof resultat!=='object' || Array.isArray(resultat)
