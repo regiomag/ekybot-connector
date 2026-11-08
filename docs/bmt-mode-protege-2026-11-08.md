@@ -25,3 +25,11 @@ contrat doit garantir la conservation et la vérification du marqueur à chaque
 reprise. Avant toute activation, il faut également un runtime et une session
 isolés, sans mémoire, outils, espace de travail ou instructions classiques,
 ainsi que des vérifications intégrées du rappel, des droits et de la révocation.
+
+Le plan expérimental de boîte locale interdit réseau, montages, privilèges,
+logs de conteneur et téléchargement implicite ; il ne transmet aucun secret
+ni environnement du poste. Il ne lance rien et son registre d'images
+qualifiées est vide. Un pont local vers le modèle sélectionné, l'arrêt effectif
+des processus, la vérification des images et les essais d'isolation restent
+nécessaires. Aucun prestataire d'isolation hébergé n'est prévu ; le modèle
+choisi par l'utilisateur conserve son fournisseur et ses propres conditions.
