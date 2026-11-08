@@ -18,6 +18,9 @@ production. Les registres et les portes d'activation restent fermés.
 - Empreinte locale de l'image produite :
   `sha256:17e1c134864be3fccd72a3b1928d43a10b5d88bd0d1659600b6998fc93b671f2`.
   Elle est une preuve locale, pas une image publiée ou réputée reproductible.
+- Une archive locale de cette image a été conservée pour reproduire les essais ;
+  son SHA-256 est `d9a6614f6610a747ea281c516f834ac0f740d54f753098e8e4af6bca3dda6239`.
+  Une copie locale seule ne constitue pas un canal de distribution qualifié.
 
 ## Résultats observés
 
@@ -34,11 +37,19 @@ production. Les registres et les portes d'activation restent fermés.
   base PostgreSQL Ekybot éphémère, la réservation et l'estimation des coûts. Le
   service de contrôle BMT était simulé ; ses fonctions SQL ont été vérifiées
   séparément sur une base éphémère.
+- Un banc ultérieur a relié les fonctions et migrations des deux services sur
+  deux bases éphémères, la projection BMT, l'envoi signé, le conteneur, le
+  modèle fictif puis Qwen 2.5 7B sur Ollama local, et le retour chiffré. Les
+  jetons ont été mesurés et un montant de test a été comptabilisé. Des marqueurs
+  sensibles fictifs étaient absents de l'envoi et de la requête au modèle ; une
+  révocation a bloqué la lecture. La source métier et le transport entre les
+  services étaient simulés. L'instance Ollama locale avait son cloud désactivé.
 
 ## À achever avant ouverture
 
 - Construire et distribuer une image de release vérifiable sur les plateformes
-  prises en charge ; répéter les essais sur chacune et qualifier un modèle réel.
+  prises en charge ; répéter les essais sur chacune. La qualité des réponses du
+  modèle et son comportement dans d'autres situations restent à évaluer.
 - Terminer le respect des budgets entre toutes les voies concurrentes et la
   résolution des coûts incertains. Aucun budget configuré n'est contourné.
 - Vérifier la chaîne avec le vrai backend BMT et les migrations coordonnées,

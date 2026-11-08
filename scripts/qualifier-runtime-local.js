@@ -10,9 +10,10 @@ const { randomUUID } = require('node:crypto');
 const { once } = require('node:events');
 const sandbox = require('../src/protected-local-sandbox');
 
-async function qualifier(socket,image,docker) {
+async function qualifier(socket,image,docker,mode='fictif') {
   if (typeof socket!=='string' || !isAbsolute(socket) || !/^sha256:[0-9a-f]{64}$/.test(image)
-    || !['/usr/bin/docker','/usr/local/bin/docker','/opt/homebrew/bin/docker'].includes(docker)) {throw new Error('qualification_invalide');}
+    || !['/usr/bin/docker','/usr/local/bin/docker','/opt/homebrew/bin/docker'].includes(docker)
+    || !['fictif','ollama-local'].includes(mode)) {throw new Error('qualification_invalide');}
   const planOriginal=sandbox.planProtectedLocalRuntime;
   sandbox.planProtectedLocalRuntime=(_runtime,runId)=>sandbox.buildIsolatedContainerArgs(runId,image);
   const {executerAgentAvecApiProtegee}=require('../src/protected-configured-runner');
@@ -36,27 +37,36 @@ async function qualifier(socket,image,docker) {
     } catch {res.writeHead(400);res.end();}
   });
   try {
-    service.listen(0,'127.0.0.1');await once(service,'listening');
+    if(mode==='fictif') {service.listen(0,'127.0.0.1');await once(service,'listening');}
+    const modele=mode==='fictif'?'modele-fictif':'qwen2.5:7b';
+    // Cet essai ne contacte que l'instance locale dédiée ; son mode cloud doit
+    // être désactivé avant le lancement. Les données restent entièrement fictives.
+    const endpoint=mode==='fictif'?`http://127.0.0.1:${service.address().port}/v1/chat/completions`
+      :'http://127.0.0.1:11476/v1/chat/completions';
     const fichierConfiguration=join(repertoire,'modele.json');
     await fs.writeFile(fichierConfiguration,JSON.stringify({version:1,agents:[{agent:'agent-test',provider:'api-compatible-explicite',
-      modele:'modele-fictif',endpoint:`http://127.0.0.1:${service.address().port}/v1/chat/completions`,limite:100,
+      modele,endpoint,limite:256,
       parametreLimite:'max_tokens',variableCle:null}]}),{mode:0o600});
-    let controles=0;const suivi={avant:async()=>{},apres:async usage=>assert.equal(usage.etat,'inconnu')};
-    const resultat=await executerAgentAvecApiProtegee({fichierConfiguration,selection:{agent:'agent-test',provider:'api-compatible-explicite',modele:'modele-fictif'},
+    let controles=0,mesure;const suivi={avant:async()=>{},apres:async usage=>{mesure=usage;}};
+    const resultat=await executerAgentAvecApiProtegee({fichierConfiguration,selection:{agent:'agent-test',provider:'api-compatible-explicite',modele},
       runtime:'qualification',runId,octets:Buffer.from(JSON.stringify(contenu)),liaison,socket,
       docker,repertoire:join(repertoire,'journal'),
-      verifierDroits:async()=>{controles++;},suivi,limiteAppels:1,delaiMs:60000,signal:AbortSignal.timeout(75000)});
-    assert.deepEqual(resultat,{statut:'termine',texte:'Réponse locale fictive.'});
-    assert.equal(appels,1);assert.ok(controles>=4);assert.ok(question.includes(dossier));
+      verifierDroits:async()=>{controles++;},suivi,limiteAppels:1,delaiMs:120000,signal:AbortSignal.timeout(135000)});
+    assert.equal(resultat.statut,'termine');assert.ok(resultat.texte.trim());
+    if(mode==='fictif') {
+      assert.equal(resultat.texte,'Réponse locale fictive.');assert.equal(appels,1);
+      assert.ok(question.includes(dossier));assert.equal(mesure.etat,'inconnu');
+    } else {assert.equal(mesure.etat,'mesure');}
+    assert.ok(controles>=4);
     assert.deepEqual((await fs.readdir(join(repertoire,'journal'))).filter(v=>v.startsWith('run-')),[]);
-    process.stdout.write('Exécution locale et nettoyage vérifiés avec des données fictives.\n');
+    process.stdout.write(`Exécution locale (${mode}) et nettoyage vérifiés avec des données fictives.\n`);
   } finally {
     sandbox.planProtectedLocalRuntime=planOriginal;
-    service.closeAllConnections();await new Promise(resolve=>service.close(resolve));
+    if(service.listening) {service.closeAllConnections();await new Promise(resolve=>service.close(resolve));}
     await fs.rm(repertoire,{recursive:true,force:true});
   }
 }
 
 if(require.main===module) {
-  qualifier(process.argv[2],process.argv[3],process.argv[4]).catch(()=>{process.stderr.write('Qualification locale impossible.\n');process.exitCode=1;});
+  qualifier(process.argv[2],process.argv[3],process.argv[4],process.argv[5]).catch(()=>{process.stderr.write('Qualification locale impossible.\n');process.exitCode=1;});
 }
