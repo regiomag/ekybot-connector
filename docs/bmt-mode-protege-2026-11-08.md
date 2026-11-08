@@ -88,3 +88,13 @@ clé reste côté compagnon. La configuration et le transport authentifié depui
 Ekybot ne sont pas encore exposés à l'utilisateur et aucun runtime n'est
 qualifié. Le contrôle des droits BMT avant chaque appel modèle doit encore être
 raccordé par le transport machine.
+
+Le compagnon possède un client séparé du relais classique et un travailleur
+qui demandent une tâche, recontrôlent les droits avant le runtime et chaque
+appel modèle, puis confirment le résultat. La clé machine et les paramètres
+locaux ne sont jamais transmis au conteneur. Le client et la route serveur
+ne sont pas encore reliés : leur contrat préparé ne doit pas être ouvert tant
+que l'affectation transactionnelle à une machine, les droits BMT et le budget
+n'y sont pas vérifiés. Une réponse réseau incertaine ne relance pas l'agent.
+Un contexte d'image minimal peut être préparé depuis une base désignée par
+empreinte ; aucune image n'est construite, certifiée ou activée automatiquement.

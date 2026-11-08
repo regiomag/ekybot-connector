@@ -48,7 +48,7 @@ function creerTransportModeleProtege({ configuration, obtenirCle, envoyer = fetc
           if (!(value instanceof Uint8Array) || (total += value.byteLength) > MAX_REPONSE) {return unavailable();}
           morceaux.push(value);
         }
-      } finally {await lecteur.cancel().catch(() => {});lecteur.releaseLock();}
+      } finally {void lecteur.cancel().catch(() => {});try {lecteur.releaseLock();} catch { /* Lecture annulée. */ }}
       signal.throwIfAborted();
       const resultat = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(morceaux)));
       const choix = resultat?.choices;
