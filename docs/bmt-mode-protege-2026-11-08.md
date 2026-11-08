@@ -46,3 +46,10 @@ une conservation automatique de l'abonnement existant. Un adaptateur dédié,
 sa gestion des flux et des autorisations et des essais sur image locale restent
 nécessaires. Aucun changement de fournisseur ou de facturation ne doit être
 fait silencieusement.
+
+Si le client Docker s'interrompt anormalement, le prototype essaie désormais
+explicitement d'arrêter le conteneur et vérifie qu'il n'est plus en cours. Si
+le démon est inaccessible ou que l'arrêt ne peut pas être constaté, il signale
+un arrêt incertain : cela ne prouve pas qu'un conteneur orphelin est arrêté.
+La détection durable au redémarrage, sa récupération exclusive et un essai sur
+un vrai démon restent à réaliser avant toute qualification ou activation.

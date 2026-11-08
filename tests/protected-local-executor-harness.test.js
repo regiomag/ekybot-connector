@@ -49,3 +49,98 @@ test('la sortie est bornée et l’arrêt cible le conteneur, sans transmettre l
     delete require.cache[require.resolve('../src/protected-local-executor')];
   }
 });
+
+
+test('un démon indisponible rend l’arrêt incertain plutôt que de le déclarer terminé', async () => {
+  const sauvegarde = { spawn: childProcess.spawn, execFile: childProcess.execFile, realpath: fs.realpath,
+    stat: fs.stat, mkdtemp: fs.mkdtemp, rm: fs.rm, plan: sandbox.planProtectedLocalRuntime };
+  let enfant;
+  try {
+    sandbox.planProtectedLocalRuntime = () => sandbox.buildIsolatedContainerArgs(id('6'), `sha256:${'a'.repeat(64)}`);
+    fs.realpath = async () => '/tmp/socket-fictif'; fs.stat = async () => ({ isSocket: () => true });
+    fs.mkdtemp = async () => '/tmp/repertoire-fictif'; fs.rm = async () => {};
+    childProcess.spawn = () => {
+      enfant = new EventEmitter(); enfant.stdout = new PassThrough();
+      enfant.stdin = new Writable({ write(_chunk, _enc, callback) { callback(); } });
+      enfant.kill = () => { enfant.stdout.destroy(); enfant.emit('close', 137); return true; };
+      return enfant;
+    };
+    childProcess.execFile = (_bin, _args, _options, cb) => cb(new Error('démon inaccessible'));
+    delete require.cache[require.resolve('../src/protected-local-executor')];
+    const { executerAgentLocalProtege } = require('../src/protected-local-executor');
+    const controle = new AbortController();
+    const travail = executerAgentLocalProtege({ runtime:'runtime-fictif',runId:id('6'),
+      octets:Buffer.from(JSON.stringify(message)),liaison,socket:'/tmp/socket-fictif',docker:'/usr/bin/docker',
+      limiteAppels:1,verifierDroits:async()=>{},appelerModele:async()=>'fictif',signal:controle.signal });
+    await new Promise((resolve) => setImmediate(resolve));
+    controle.abort();
+    await assert.rejects(travail, /protected_runtime_stop_unconfirmed/);
+  } finally {
+    childProcess.spawn=sauvegarde.spawn;childProcess.execFile=sauvegarde.execFile;fs.realpath=sauvegarde.realpath;
+    fs.stat=sauvegarde.stat;fs.mkdtemp=sauvegarde.mkdtemp;fs.rm=sauvegarde.rm;
+    sandbox.planProtectedLocalRuntime=sauvegarde.plan;
+    delete require.cache[require.resolve('../src/protected-local-executor')];
+  }
+});
+
+test('une sortie anormale du client Docker déclenche l’arrêt du conteneur', async () => {
+  const sauvegarde={spawn:childProcess.spawn,execFile:childProcess.execFile,realpath:fs.realpath,
+    stat:fs.stat,mkdtemp:fs.mkdtemp,rm:fs.rm,plan:sandbox.planProtectedLocalRuntime};
+  const arrets=[];let enfant;
+  try {
+    sandbox.planProtectedLocalRuntime=()=>sandbox.buildIsolatedContainerArgs(id('6'),`sha256:${'a'.repeat(64)}`);
+    fs.realpath=async()=>'/tmp/socket-fictif';fs.stat=async()=>({isSocket:()=>true});
+    fs.mkdtemp=async()=>'/tmp/repertoire-fictif';fs.rm=async()=>{};
+    childProcess.spawn=()=>{
+      enfant=new EventEmitter();enfant.stdout=new PassThrough();
+      enfant.stdin=new Writable({write(_chunk,_enc,callback){callback();}});
+      enfant.kill=()=>true;return enfant;
+    };
+    childProcess.execFile=(_bin,args,_options,cb)=>{arrets.push(args);cb(null,'','');};
+    delete require.cache[require.resolve('../src/protected-local-executor')];
+    const { executerAgentLocalProtege }=require('../src/protected-local-executor');
+    const travail=executerAgentLocalProtege({runtime:'runtime-fictif',runId:id('6'),
+      octets:Buffer.from(JSON.stringify(message)),liaison,socket:'/tmp/socket-fictif',docker:'/usr/bin/docker',
+      limiteAppels:1,verifierDroits:async()=>{},appelerModele:async()=>'fictif'});
+    await new Promise(resolve=>setImmediate(resolve));
+    enfant.emit('close',125);
+    await assert.rejects(travail,/protected_runtime_unavailable/);
+    assert.ok(arrets.some(args=>args.includes('kill') && args.includes(`bmt-protected-${id('6')}`)));
+    enfant.stdout.destroy();
+  } finally {
+    childProcess.spawn=sauvegarde.spawn;childProcess.execFile=sauvegarde.execFile;fs.realpath=sauvegarde.realpath;
+    fs.stat=sauvegarde.stat;fs.mkdtemp=sauvegarde.mkdtemp;fs.rm=sauvegarde.rm;
+    sandbox.planProtectedLocalRuntime=sauvegarde.plan;
+    delete require.cache[require.resolve('../src/protected-local-executor')];
+  }
+});
+
+test('un conteneur encore visible après kill reste en arrêt incertain', async () => {
+  const sauvegarde={spawn:childProcess.spawn,execFile:childProcess.execFile,realpath:fs.realpath,
+    stat:fs.stat,mkdtemp:fs.mkdtemp,rm:fs.rm,plan:sandbox.planProtectedLocalRuntime};
+  let enfant;
+  try {
+    sandbox.planProtectedLocalRuntime=()=>sandbox.buildIsolatedContainerArgs(id('6'),`sha256:${'a'.repeat(64)}`);
+    fs.realpath=async()=>'/tmp/socket-fictif';fs.stat=async()=>({isSocket:()=>true});
+    fs.mkdtemp=async()=>'/tmp/repertoire-fictif';fs.rm=async()=>{};
+    childProcess.spawn=()=>{
+      enfant=new EventEmitter();enfant.stdout=new PassThrough();
+      enfant.stdin=new Writable({write(_chunk,_enc,callback){callback();}});
+      enfant.kill=()=>{enfant.stdout.destroy();return true;};return enfant;
+    };
+    childProcess.execFile=(_bin,args,_options,cb)=>cb(null,args.includes('ps')?`bmt-protected-${id('6')}\n`:'','');
+    delete require.cache[require.resolve('../src/protected-local-executor')];
+    const { executerAgentLocalProtege }=require('../src/protected-local-executor');
+    const controller=new AbortController();
+    const travail=executerAgentLocalProtege({runtime:'runtime-fictif',runId:id('6'),
+      octets:Buffer.from(JSON.stringify(message)),liaison,socket:'/tmp/socket-fictif',docker:'/usr/bin/docker',
+      limiteAppels:1,verifierDroits:async()=>{},appelerModele:async()=>'fictif',signal:controller.signal});
+    await new Promise(resolve=>setImmediate(resolve));controller.abort();
+    await assert.rejects(travail,/protected_runtime_stop_unconfirmed/);
+  } finally {
+    childProcess.spawn=sauvegarde.spawn;childProcess.execFile=sauvegarde.execFile;fs.realpath=sauvegarde.realpath;
+    fs.stat=sauvegarde.stat;fs.mkdtemp=sauvegarde.mkdtemp;fs.rm=sauvegarde.rm;
+    sandbox.planProtectedLocalRuntime=sauvegarde.plan;
+    delete require.cache[require.resolve('../src/protected-local-executor')];
+  }
+});

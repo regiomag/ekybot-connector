@@ -4,13 +4,14 @@ const { spawn, execFile } = require('node:child_process');
 const { mkdtemp, rm, realpath, stat } = require('node:fs/promises');
 const { tmpdir } = require('node:os');
 const { join, isAbsolute } = require('node:path');
-const { promisify } = require('node:util');
 const { planProtectedLocalRuntime } = require('./protected-local-sandbox');
 const { verifierMessageLocalProtege } = require('./protected-local-contract');
 const { creerPontLocalProtege } = require('./protected-local-broker');
 const { servirProtocoleProtege } = require('./protected-local-protocol');
 
-const executer = promisify(execFile);
+const executer = (fichier, args, options) => new Promise((resolve, reject) => {
+  execFile(fichier, args, options, (erreur, stdout) => erreur ? reject(erreur) : resolve(stdout));
+});
 const DOCKER_BINARIES = Object.freeze(['/usr/bin/docker', '/usr/local/bin/docker', '/opt/homebrew/bin/docker']);
 const unavailable = () => { throw new Error('protected_runtime_unavailable'); };
 
@@ -20,7 +21,7 @@ const unavailable = () => { throw new Error('protected_runtime_unavailable'); };
 async function executerAgentLocalProtege({ runtime, runId, octets, liaison, socket, docker, appelerModele,
   verifierDroits, limiteAppels, delaiMs = 120000, signal }) {
   let enfant, repertoire, timer, nom, annuler;
-  let termine = false;
+  let termine = false, arretIncertain = false, erreur = false, resultat;
   const controle = new AbortController();
   try {
     // Refus avant toute lecture ou lancement tant que le runtime n'est pas qualifié.
@@ -49,7 +50,7 @@ async function executerAgentLocalProtege({ runtime, runId, octets, liaison, sock
     enfant.stdin.on('error', () => {});
     const fin = new Promise((resolve, reject) => {
       enfant.once('error', reject);
-      enfant.once('close', (code) => { termine = true; if (code === 0) {resolve();} else {reject(new Error());} });
+      enfant.once('close', (code) => { termine = code === 0; if (code === 0) {resolve();} else {reject(new Error());} });
     });
     // Jamais d'identifiant réel ni de demande libre dans cette entrée validée.
     enfant.stdin.write(`${JSON.stringify({ type: 'demarrer', message })}\n`);
@@ -62,8 +63,8 @@ async function executerAgentLocalProtege({ runtime, runId, octets, liaison, sock
     const [texte] = await Promise.race([Promise.all([protocole, fin]), limite, annulation]);
     await verifierDroits();
     if (controle.signal.aborted || signal?.aborted) {return unavailable();}
-    return { texte };
-  } catch { return unavailable(); }
+    resultat = { texte };
+  } catch { erreur = true; }
   finally {
     clearTimeout(timer);
     controle.abort();
@@ -71,13 +72,23 @@ async function executerAgentLocalProtege({ runtime, runId, octets, liaison, sock
     if (enfant && !termine) {
       // Couper le conteneur lui-même ; tuer le seul client Docker ne suffit pas.
       try {
-        await executer(docker, ['--config', repertoire, '--host', `unix://${await realpath(socket)}`, 'kill', nom],
-          { cwd: repertoire, env: { PATH: '/usr/bin:/bin', HOME: repertoire }, timeout: 5000 });
-      } catch { /* La qualification doit traiter le cas d'un démon indisponible. */ }
-      enfant.kill('SIGKILL');
+        const hote = `unix://${await realpath(socket)}`;
+        const options = { cwd: repertoire, env: { PATH: '/usr/bin:/bin', HOME: repertoire }, timeout: 5000 };
+        await executer(docker, ['--config', repertoire, '--host', hote, 'kill', nom], options);
+        // L'accusé de kill seul ne prouve pas que le conteneur s'est arrêté.
+        const etat = await executer(docker, ['--config', repertoire, '--host', hote, 'ps', '--filter',
+          `name=^/${nom}$`, '--format', '{{.Names}}'], options);
+        if (typeof etat !== 'string' || etat.trim() !== '') {arretIncertain = true;}
+      } catch { arretIncertain = true; }
+      try {enfant.kill('SIGKILL');} catch {arretIncertain = true;}
     }
     if (repertoire) {await rm(repertoire, { recursive: true, force: true }).catch(() => {});}
   }
+  // Si le démon ne confirme pas l'arrêt, ne pas annoncer un échec traité :
+  // une intervention de récupération doit d'abord retrouver le conteneur.
+  if (arretIncertain) {throw new Error('protected_runtime_stop_unconfirmed');}
+  if (erreur || !resultat) {return unavailable();}
+  return resultat;
 }
 
 module.exports = { executerAgentLocalProtege };
