@@ -32,6 +32,39 @@ describe('EkybotCompanionRelayProcessor', () => {
     delete process.env.EKYBOT_RELAY_PROFILE;
   });
 
+  it('refuses a protected marker before memory, routing or a model call', async () => {
+    let called = false;
+    const processor = new EkybotCompanionRelayProcessor({}, { sendRelayPrompt: async () => { called = true; } });
+    for (const notification of [
+      { id:'opaque', protectedMode:'v1', content:'private' },
+      { id:'opaque', relay:{ protectedMode:false }, content:'private' },
+    ]) {
+      await assert.rejects(processor.processNotification('machine', notification), { code:'protected_mode_unavailable' });
+      await assert.rejects(processor._processNotificationInner('machine', notification), { code:'protected_mode_unavailable' });
+    }
+    assert.equal(called, false);
+  });
+
+  it('acknowledges a protected refusal without logging or returning message details', async () => {
+    const calls = [], output = [];
+    const notification = { id:'opaque', content:'private-message', relay:{ protectedMode:'v1', target:{agentId:'private-agent'}, source:{channelKey:'private-channel'} } };
+    const processor = new EkybotCompanionRelayProcessor({
+      fetchRelayNotifications: async () => ({notifications:[notification]}),
+      updateRelayNotifications: async (...args) => { calls.push(args); },
+    }, { sendRelayPrompt: async () => assert.fail('model called') });
+    const oldLog=console.log, oldWarn=console.warn;
+    console.log=(...args)=>output.push(args.join(' '));console.warn=(...args)=>output.push(args.join(' '));
+    try {
+      const result=await processor.processPendingRelays('machine');
+      assert.equal(result.failed,1);assert.equal(result.delivered,0);
+      assert.deepEqual(calls,[['machine',{notificationIds:['opaque'],status:'failed',error:'protected_mode_unavailable'}]]);
+      for (const secret of ['private-message','private-agent','private-channel']) {
+        assert.equal(output.join('\n').includes(secret),false);
+        assert.equal(JSON.stringify(calls).includes(secret),false);
+      }
+    } finally { console.log=oldLog;console.warn=oldWarn; }
+  });
+
   it('uses client timeout + publish grace for relay hard-timeout by default', () => {
     const processor = new EkybotCompanionRelayProcessor({}, { timeoutMs: 60_000 });
 

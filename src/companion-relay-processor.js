@@ -23,6 +23,15 @@ const DEFAULT_RELAY_ACK_RETRY_DELAY_MS = 1_500;
 const CONTINUITY_DELAY_TEST_MARKER = 'TEST_CONTINUITY_DELAY_70';
 const OPENCLAW_RELAY_SESSION_NAMESPACE = 'ekybot-relay-v2';
 
+function refuseProtectedRelay(notification) {
+  if (Object.prototype.hasOwnProperty.call(notification || {}, 'protectedMode')
+    || Object.prototype.hasOwnProperty.call(notification?.relay || {}, 'protectedMode')) {
+    const error = new Error('protected_mode_unavailable');
+    error.code = 'protected_mode_unavailable';
+    throw error;
+  }
+}
+
 // File attachment URL patterns (Vercel Blob, Supabase Storage, etc.)
 const ATTACHMENT_URL_REGEX = /https?:\/\/[^\s)]+\.blob\.vercel-storage\.com\/[^\s)]+|https?:\/\/[^\s)]+\.supabase\.co\/storage\/[^\s)]+/g;
 const TEXT_EXTENSIONS = ['.txt', '.md', '.json', '.csv', '.ts', '.tsx', '.js', '.jsx', '.py', '.html', '.css', '.xml', '.yaml', '.yml', '.toml', '.env', '.sh', '.sql', '.prisma', '.graphql'];
@@ -567,6 +576,11 @@ class EkybotCompanionRelayProcessor {
   }
 
   async processNotification(machineId, notification) {
+    // Le runtime historique injecte des mémoires, des instructions et un
+    // espace de travail partagés. Une requête marquée protégée doit être
+    // refusée avant tout routage ou appel au modèle, quelle que soit la valeur
+    // de ce champ, jusqu'à qualification d'un runtime isolé.
+    refuseProtectedRelay(notification);
     const notificationId = notification?.id;
 
     // Prevent double-processing: if this notification is already being handled
@@ -593,6 +607,7 @@ class EkybotCompanionRelayProcessor {
   }
 
   async _processNotificationInner(machineId, notification) {
+    refuseProtectedRelay(notification);
     const relay = notification?.relay || {};
     const target = relay.target || {};
     const requestId = resolveRelayRequestId(notification);
@@ -1210,6 +1225,16 @@ class EkybotCompanionRelayProcessor {
           );
         } catch (error) {
           agentResult.failed += 1;
+          if (error?.code === 'protected_mode_unavailable') {
+            // Réponse neutre, sans recopier la demande, les noms, le canal ou
+            // l'erreur d'un fournisseur dans les journaux ou l'accusé.
+            try {
+              await this.apiClient.updateRelayNotifications(machineId, {
+                notificationIds: [notification.id], status: 'failed', error: 'protected_mode_unavailable',
+              });
+            } catch { /* Le prochain passage refuse encore le même message. */ }
+            continue;
+          }
           const message = error instanceof Error ? error.message : String(error);
           const relay = notification?.relay || {};
           const sourceChannel = normalizeChannelKey(relay?.source?.channelKey) || normalizeChannelKey(notification?.threadId) || 'general';
