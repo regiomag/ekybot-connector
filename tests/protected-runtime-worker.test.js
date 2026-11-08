@@ -27,3 +27,16 @@ test('refuse une donnée non autorisée avant appel du modèle',async()=>{
   entree.end(`${JSON.stringify({type:'demarrer',message:{...message,nom:'nom interdit'}})}\n`);
   await assert.rejects(worker,/protected_runtime_unavailable/);assert.equal(sortieTexte,'');sortie.destroy();
 });
+
+test('le programme local se termine après avoir rendu sa réponse',async()=>{
+  const { spawn }=require('node:child_process');
+  const { once }=require('node:events');
+  const enfant=spawn(process.execPath,['src/protected-runtime/worker.js'],{cwd:process.cwd(),env:{PATH:'/usr/bin:/bin'},stdio:['pipe','pipe','ignore']});
+  const fin=once(enfant,'exit');
+  try {
+    const pont=creerPontLocalProtege({limiteAppels:1,appelerModele:async()=> 'réponse'});
+    const resultat=servirProtocoleProtege(enfant.stdout,enfant.stdin,pont);
+    enfant.stdin.write(`${JSON.stringify({type:'demarrer',message})}\n`);
+    assert.equal(await resultat,'réponse');const [code]=await fin;assert.equal(code,0);
+  } finally {enfant.kill('SIGKILL');}
+});
