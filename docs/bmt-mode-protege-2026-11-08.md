@@ -105,3 +105,9 @@ reste à `false`, indépendamment des variables d'environnement ; le cycle ne
 peut donc pas être activé avant qualification. L'arrêt du compagnon transmet
 une annulation au travail en cours et attend la fin du cycle. L'image n'a pas
 encore été construite ni vérifiée sur un démon réel.
+
+À chaque passage activé, la reprise locale précède désormais la demande de
+tâche : un ancien conteneur inscrit est recherché et arrêté même si aucune
+nouvelle tâche n'attend. Si l'identité du démon ou l'arrêt ne peuvent pas être
+confirmés, aucune tâche n'est réclamée. Cette reprise reste derrière la même
+constante fermée et doit encore être vérifiée sur un démon réel.
