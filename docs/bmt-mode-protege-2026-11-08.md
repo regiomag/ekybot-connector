@@ -53,3 +53,30 @@ le démon est inaccessible ou que l'arrêt ne peut pas être constaté, il signa
 un arrêt incertain : cela ne prouve pas qu'un conteneur orphelin est arrêté.
 La détection durable au redémarrage, sa récupération exclusive et un essai sur
 un vrai démon restent à réaliser avant toute qualification ou activation.
+
+## Avancement local du 8 novembre
+
+Un premier programme de runtime construit une question prédéfinie à partir du
+seul contrat structuré, puis communique par le pont stdin/stdout. Un transport
+HTTPS compatible Chat Completions prend sa destination, son modèle, sa limite
+et sa clé dans une configuration locale explicite ; ni l'agent isolé ni son
+message ne peuvent les choisir. Il ne suit pas les redirections et ne rejoue
+pas les appels. Ce transport concerne une configuration API explicite : il ne
+représente ni Codex ni Claude, et ne réutilise pas leur abonnement.
+
+Le programme préparé pour le compagnon écrit avant lancement un journal local
+ne contenant que des références techniques et l'empreinte du démon. Un verrou
+système exclusif est libéré à la fin du processus ; au redémarrage, le
+superviseur vérifie l'identité du démon et arrête, si nécessaire, les seuls
+conteneurs inscrits avant de permettre une nouvelle exécution. Si le démon ou
+l'arrêt est incertain, le journal demeure et le travail n'est pas déclaré
+terminé. Les contrôles de reprise ont utilisé un verrou réel et un démon
+simulé ; aucun conteneur réel n'a été qualifié à ce stade.
+
+À faire : construire et qualifier une image locale reproductible, définir la
+configuration liée à chaque agent et le transport authentifié vers le compagnon,
+vérifier les interruptions et les refus sur un vrai démon, puis effectuer les
+essais intégrés. Codex/Claude nécessitent leurs adaptateurs propres ; ne pas
+substituer un fournisseur ou une facturation. Le registre d'images et les
+gates restent fermés, et les tests précédents ne constituent pas une mise en
+production.
