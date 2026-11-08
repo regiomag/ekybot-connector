@@ -45,11 +45,33 @@ production. Les registres et les portes d'activation restent fermés.
   révocation a bloqué la lecture. La source métier et le transport entre les
   services étaient simulés. L'instance Ollama locale avait son cloud désactivé.
 
+## Construction reproductible sur cette machine
+
+Deux constructions séparées, sans cache et depuis des contextes différents,
+ont produit la même archive OCI et la même configuration :
+
+- base ARM64 `node@sha256:b0d33ed19a912e1a18ceb83e139815233cd49c123fe025e67a7c506c93e3f728` ;
+- Docker 29.5.2, BuildKit 0.30.0 et Buildx 0.38.2 ;
+- `SOURCE_DATE_EPOCH=0`, étapes de construction sans réseau et export OCI
+  `rewrite-timestamp=true` ; la résolution de la base peut contacter un registre ;
+- configuration OCI `sha256:3643c9a8e7f507590fe95f2458c976442cf1457d49541becd60c8782476a3d5d` ;
+- manifeste OCI `sha256:2891a3443455b2caea65ea5d5ce5382980eb40f1ef90c4dfc55c271146a6dc68` ;
+- archive SHA-256 `8a2c5194004447c29b60ef83a1b8185cb3c14e36a449754ceda5ba218b847f7a`.
+
+L'archive a été chargée dans la VM dédiée et le banc inter-dépôts a de nouveau
+réussi jusqu'au retour avec le modèle Qwen local. Le script manuel
+`scripts/construire-runtime-reproductible.js` vérifie la configuration et
+l'archive avant de produire son fichier, sans remplacer un fichier existant.
+Il prend quatre arguments absolus : Docker, socket Docker local, binaire Buildx
+et destination. Une base déjà présente est nécessaire. Une autre version ou
+plateforme peut produire d'autres empreintes et sera refusée. Cette preuve ne
+remplace ni un canal de distribution, ni la qualification d'autres machines.
+
 ## À achever avant ouverture
 
-- Construire et distribuer une image de release vérifiable sur les plateformes
-  prises en charge ; répéter les essais sur chacune. La qualité des réponses du
-  modèle et son comportement dans d'autres situations restent à évaluer.
+- Distribuer une image de release vérifiable sur les plateformes prises en
+  charge ; répéter les essais sur chacune. La qualité des réponses du modèle
+  et son comportement dans d'autres situations restent à évaluer.
 - Terminer le respect des budgets entre toutes les voies concurrentes et la
   résolution des coûts incertains. Aucun budget configuré n'est contourné.
 - Vérifier la chaîne avec le vrai backend BMT et les migrations coordonnées,
