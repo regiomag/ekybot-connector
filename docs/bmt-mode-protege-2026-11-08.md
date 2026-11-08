@@ -98,3 +98,10 @@ que l'affectation transactionnelle à une machine, les droits BMT et le budget
 n'y sont pas vérifiés. Une réponse réseau incertaine ne relance pas l'agent.
 Un contexte d'image minimal peut être préparé depuis une base désignée par
 empreinte ; aucune image n'est construite, certifiée ou activée automatiquement.
+
+Le cycle de la machine est préparé dans la boucle du compagnon existante : il
+ne crée ni nouveau service hébergé ni nouvelle planification. Une constante
+reste à `false`, indépendamment des variables d'environnement ; le cycle ne
+peut donc pas être activé avant qualification. L'arrêt du compagnon transmet
+une annulation au travail en cours et attend la fin du cycle. L'image n'a pas
+encore été construite ni vérifiée sur un démon réel.

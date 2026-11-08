@@ -3,6 +3,7 @@
 require('../src/load-env')();
 const chalk = require('chalk');
 const reconcileCompanionState = require('./companion-reconcile');
+const { cycleMachineProtegee } = require('../src/protected-machine-cycle');
 const {
   EkybotCompanionApiClient,
   EkybotCompanionStateStore,
@@ -10,6 +11,8 @@ const {
 } = require('../src');
 
 const DEFAULT_INTERVAL_MS = 30_000;
+// Aucun runtime n'est encore qualifié : une variable d'environnement ne peut pas ouvrir cette voie.
+const PROTECTED_RUNTIME_QUALIFIE = false;
 
 function resolvePollIntervalMs() {
   const raw = process.env.EKYBOT_COMPANION_POLL_INTERVAL_MS;
@@ -29,6 +32,8 @@ async function runDaemon() {
   let running = false;
   let pendingReason = null;
   let intervalId = null;
+  let cycleEnCours = Promise.resolve();
+  const protectedAbort = new AbortController();
   const stateStore = new EkybotCompanionStateStore();
   const state = stateStore.load();
   const relaySocket =
@@ -49,6 +54,7 @@ async function runDaemon() {
 
   const requestStop = (signal) => {
     stopRequested = true;
+    protectedAbort.abort();
     console.log(chalk.yellow(`\nReceived ${signal}, stopping companion daemon...`));
     if (intervalId) {
       clearInterval(intervalId);
@@ -83,6 +89,15 @@ async function runDaemon() {
 
     try {
       await reconcileCompanionState();
+      if (PROTECTED_RUNTIME_QUALIFIE && !protectedAbort.signal.aborted) {
+        await cycleMachineProtegee({etat:state,signal:protectedAbort.signal,reglages:{
+          fichierConfiguration:process.env.EKYBOT_PROTECTED_CONFIG,
+          socket:process.env.EKYBOT_PROTECTED_DOCKER_SOCKET,
+          docker:process.env.EKYBOT_PROTECTED_DOCKER_BINARY,
+          repertoire:process.env.EKYBOT_PROTECTED_STATE_DIR,
+          limiteAppels:1,delaiMs:120000,
+        }});
+      }
       console.log(chalk.green(`[Cycle ${cycle}] Companion reconcile finished`));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -95,13 +110,14 @@ async function runDaemon() {
       const nextReason = pendingReason;
       pendingReason = null;
       setImmediate(() => {
-        void runCycle(nextReason);
+        requestCycle(nextReason);
       });
     }
   };
 
   const requestCycle = (reason) => {
-    void runCycle(reason);
+    if (running) {pendingReason = reason;return;}
+    cycleEnCours = runCycle(reason);
   };
 
   relaySocket?.connect();
@@ -117,6 +133,7 @@ async function runDaemon() {
     while (!stopRequested) {
       await sleep(1_000);
     }
+    await cycleEnCours;
   }
 
   console.log(chalk.green('Companion daemon stopped.'));
