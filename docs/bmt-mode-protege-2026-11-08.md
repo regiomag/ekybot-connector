@@ -114,3 +114,12 @@ constante fermée et doit encore être vérifiée sur un démon réel.
 Elle est également lancée avant la synchronisation réseau du compagnon : une
 panne de réseau ne doit pas empêcher le nettoyage local. En cas d'échec, le
 cycle classique reste accessible, mais aucune tâche protégée n'est lancée.
+
+Le transport API préparé accepte aussi un modèle explicitement configuré sur
+une adresse HTTP littérale de boucle locale (`127.0.0.1` ou `::1`). Il refuse
+les noms DNS et autres adresses en HTTP. L'opérateur reste responsable du
+service effectivement à l'écoute ; cette option ne constitue pas, à elle
+seule, une qualification ni une activation du parcours.
+Si ce service local ne demande pas de clé, la configuration privée peut
+explicitement omettre l'authentification ; une destination distante exige
+toujours une clé.

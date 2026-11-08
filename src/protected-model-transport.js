@@ -4,6 +4,16 @@ const MAX_REPONSE = 96 * 1024;
 const MAX_QUESTION = 64 * 1024;
 const unavailable = () => { throw new Error('protected_model_unavailable'); };
 
+function analyserEndpoint(endpoint) {
+  if (typeof endpoint !== 'string') {return unavailable();}
+  let url;
+  try {url = new URL(endpoint);} catch {return unavailable();}
+  const local = url.protocol === 'http:' && (url.hostname === '127.0.0.1' || url.hostname === '[::1]');
+  if ((url.protocol !== 'https:' && !local) || url.username || url.password || url.search || url.hash
+    || !url.pathname.endsWith('/chat/completions') || url.href !== endpoint) {return unavailable();}
+  return {endpoint:url.href,local};
+}
+
 /** La configuration vient exclusivement du poste et de l'agent sélectionné.
  * Aucune destination, aucun modèle ni aucun identifiant n'est accepté depuis
  * le conteneur. Une connexion API explicite n'est pas un abonnement CLI. */
@@ -16,11 +26,9 @@ function creerTransportModeleProtege({ configuration, obtenirCle, envoyer = fetc
     || configuration.limite < 1 || configuration.limite > 8192
     || !['max_tokens', 'max_completion_tokens'].includes(configuration.parametreLimite)
     || typeof obtenirCle !== 'function' || typeof envoyer !== 'function') {return unavailable();}
-  let url;
-  try {url = new URL(configuration.endpoint);} catch {return unavailable();}
-  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash
-    || !url.pathname.endsWith('/chat/completions') || url.href !== configuration.endpoint) {return unavailable();}
-  const endpoint = url.href, modele = configuration.modele, limite = configuration.limite;
+  // HTTP n'est admis que pour une adresse locale littérale, jamais via DNS.
+  const { endpoint,local } = analyserEndpoint(configuration.endpoint);
+  const modele = configuration.modele, limite = configuration.limite;
   const parametreLimite = configuration.parametreLimite;
 
   return async function appeler(question, signal) {
@@ -28,11 +36,12 @@ function creerTransportModeleProtege({ configuration, obtenirCle, envoyer = fetc
       if (typeof question !== 'string' || !question.trim() || Buffer.byteLength(question, 'utf8') > MAX_QUESTION
         || !(signal instanceof AbortSignal) || signal.aborted) {return unavailable();}
       const cle = await obtenirCle();
-      if (typeof cle !== 'string' || cle.length < 1 || cle.length > 4096 || /[\r\n]/.test(cle) || signal.aborted) {return unavailable();}
+      if ((cle !== null || !local) && (typeof cle !== 'string' || cle.length < 1 || cle.length > 4096 || /[\r\n]/.test(cle))
+        || signal.aborted) {return unavailable();}
       const corps = { model: modele, messages: [{ role: 'user', content: question }], stream: false,
         [parametreLimite]: limite };
       const reponse = await envoyer(endpoint, { method: 'POST', redirect: 'error', signal,
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cle}` }, body: JSON.stringify(corps) });
+        headers: { 'Content-Type': 'application/json', ...(cle === null ? {} : { 'Authorization': `Bearer ${cle}` }) }, body: JSON.stringify(corps) });
       if (!reponse || reponse.status !== 200 || reponse.redirected || !reponse.headers
         || reponse.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json'
         || !reponse.body || typeof reponse.body.getReader !== 'function') {return unavailable();}
@@ -61,4 +70,4 @@ function creerTransportModeleProtege({ configuration, obtenirCle, envoyer = fetc
   };
 }
 
-module.exports = { creerTransportModeleProtege };
+module.exports = { analyserEndpoint,creerTransportModeleProtege };

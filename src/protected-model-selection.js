@@ -2,6 +2,7 @@
 const fs = require('node:fs/promises');
 const { constants } = require('node:fs');
 const { isAbsolute } = require('node:path');
+const { analyserEndpoint } = require('./protected-model-transport');
 const unavailable = () => {throw new Error('protected_model_unavailable');};
 const exact = (x,keys) => !!x && typeof x === 'object' && !Array.isArray(x)
   && Object.keys(x).sort().join(',') === [...keys].sort().join(',');
@@ -40,7 +41,8 @@ async function chargerModeleProtege(fichier, selection, environnement = process.
       if (!exact(agent,['agent','provider','modele','endpoint','limite','parametreLimite','variableCle'])
         || typeof agent.agent !== 'string' || !agent.agent || agent.agent.length > 200 || vus.has(agent.agent)
         || agent.provider !== 'api-compatible-explicite' || typeof agent.modele !== 'string' || !agent.modele
-        || typeof agent.variableCle !== 'string' || !/^[A-Z][A-Z0-9_]{2,63}$/.test(agent.variableCle)) {return unavailable();}
+        || (agent.variableCle === null ? !analyserEndpoint(agent.endpoint).local
+          : typeof agent.variableCle !== 'string' || !/^[A-Z][A-Z0-9_]{2,63}$/.test(agent.variableCle))) {return unavailable();}
       vus.add(agent.agent);
     }
     const agent = data.agents.find(v => v.agent === selection.agent);
@@ -49,6 +51,7 @@ async function chargerModeleProtege(fichier, selection, environnement = process.
     const configuration = Object.freeze({mode:'api-compatible-explicite',modele:agent.modele,endpoint:agent.endpoint,
       limite:agent.limite,parametreLimite:agent.parametreLimite});
     return {configuration,obtenirCle:async()=>{
+      if (variable === null) {return null;}
       const cle = environnement[variable];
       if (typeof cle !== 'string' || !cle || cle.length > 4096 || /[\r\n]/.test(cle)) {return unavailable();}
       return cle;

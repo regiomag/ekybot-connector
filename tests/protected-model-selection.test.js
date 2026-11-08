@@ -32,3 +32,14 @@ test('refuse les fichiers non privés, liens symboliques, doublons et secrets ma
     await assert.rejects(chargerModeleProtege(path,selection,{}),/protected_model_unavailable/);
   } finally {await rm(dir,{recursive:true,force:true});}
 });
+test('la clé peut être omise uniquement pour un service en boucle locale explicite',async()=>{
+  const dir=await mkdtemp(join(tmpdir(),'protection-modele-'));const path=join(dir,'config.json');
+  try {
+    await writeFile(path,JSON.stringify({version:1,agents:[{...agent,endpoint:'http://127.0.0.1:11434/v1/chat/completions',variableCle:null}]}),{mode:0o600});
+    assert.equal(await (await chargerModeleProtege(path,selection,{})).obtenirCle(),null);
+    await writeFile(path,JSON.stringify({version:1,agents:[{...agent,variableCle:null}]}));
+    await assert.rejects(chargerModeleProtege(path,selection,{}),/protected_model_unavailable/);
+    await writeFile(path,JSON.stringify({version:1,agents:[{...agent,endpoint:'http://localhost:11434/v1/chat/completions',variableCle:null}]}));
+    await assert.rejects(chargerModeleProtege(path,selection,{}),/protected_model_unavailable/);
+  } finally {await rm(dir,{recursive:true,force:true});}
+});

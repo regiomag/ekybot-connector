@@ -28,6 +28,25 @@ test('refuse une configuration implicite, les destinations invalides et les dép
   const t=creerTransportModeleProtege({configuration:config,obtenirCle:async()=>'x',envoyer});
   await assert.rejects(t('x'.repeat(65537),signal()),/protected_model_unavailable/);assert.equal(appels,0);
 });
+test('accepte un modèle local explicitement configuré sans autoriser les autres adresses HTTP',async()=>{
+  let destination;
+  const envoyer=async url=>{destination=url;return reponse('réponse locale');};
+  for(const endpoint of ['http://127.0.0.1:11434/v1/chat/completions','http://[::1]:11434/v1/chat/completions']) {
+    const t=creerTransportModeleProtege({configuration:{...config,endpoint},obtenirCle:async()=>'cle-locale',envoyer});
+    assert.equal(await t('Question',signal()),'réponse locale');assert.equal(destination,endpoint);
+  }
+  let entetes;
+  const sansCle=creerTransportModeleProtege({configuration:{...config,endpoint:'http://127.0.0.1:11434/v1/chat/completions'},
+    obtenirCle:async()=>null,envoyer:async(_url,options)=>{entetes=options.headers;return reponse('locale');}});
+  assert.equal(await sansCle('Question',signal()),'locale');assert.equal(entetes.Authorization,undefined);
+  const distant=creerTransportModeleProtege({configuration:config,obtenirCle:async()=>null,envoyer});
+  await assert.rejects(distant('Question',signal()),/protected_model_unavailable/);
+  for(const endpoint of ['http://localhost:11434/v1/chat/completions','http://127.0.0.2/v1/chat/completions',
+    'http://2130706433/v1/chat/completions','http://192.168.1.2/v1/chat/completions',
+    'http://127.0.0.1@exemple.test/v1/chat/completions']) {
+    assert.throws(()=>creerTransportModeleProtege({configuration:{...config,endpoint},obtenirCle:async()=>'x',envoyer}),/protected_model_unavailable/);
+  }
+});
 test('refuse les redirections, sorties non bornées, outils et erreurs du fournisseur sans révéler les secrets',async()=>{
   for(const sortie of [new Response('x'.repeat(100000),{headers:{'content-type':'application/json'}}),
     new Response(JSON.stringify({choices:[{message:{role:'assistant',content:'x',tool_calls:[{}]}}]}),{headers:{'content-type':'application/json'}}),
